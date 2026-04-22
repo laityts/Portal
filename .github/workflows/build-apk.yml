@@ -53,7 +53,7 @@ jobs:
 
       - name: Build with Gradle
         run: |
-          keytool -genkeypair -v -keystore keystore.jks -alias portal -keyalg RSA -keysize 2048 -validity 10000 -storepass 123456 -keypass 123456 -dname "CN=Portal, OU=Portal, O=Portal, L=Unknown, S=Unknown, C=Unknown" -storetype JKS
+          echo ${{ secrets.SIGN_KEYSTORE_BASE64 }} | base64 -d > keystore.jks
           chmod +x ./gradlew
           ./gradlew :app:assembleRelease --build-cache --parallel --warning-mode all --stacktrace
           echo "APK_FILE_ALL=$(find app/build/outputs/apk/app/release -name '*.apk')" >> $GITHUB_ENV
@@ -61,9 +61,9 @@ jobs:
           echo "APK_FILE_X86_64=$(find app/build/outputs/apk/x64/release -name '*.apk')" >> $GITHUB_ENV
         env:
           KEYSTORE_PATH: "../keystore.jks"
-          KEYSTORE_PASSWORD: "123456"
-          KEY_ALIAS: "portal"
-          KEY_PASSWORD: "123456"
+          KEYSTORE_PASSWORD: ${{ secrets.SIGN_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SIGN_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SIGN_KEY_PASSWORD }}
 
       - name: Set Portal Version
         run: |
