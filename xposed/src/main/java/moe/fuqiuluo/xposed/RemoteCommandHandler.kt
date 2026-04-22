@@ -14,11 +14,12 @@ import kotlin.random.Random
 
 object RemoteCommandHandler {
     private val proxyBinders by lazy { Collections.synchronizedList(arrayListOf<IBinder>()) }
+    // 修复：将 put_config 加入代理广播列表
     private val needProxyCmd = arrayOf("start", "stop", "set_speed_amp", "set_altitude", "set_speed", "update_location", "set_bearing", "move", "put_config")
-    // 关键修复：将 randomKey 改为可变（var），允许子进程同步 system_server 的 key
-    internal var randomKey = "portal_" + Random.nextDouble()
+    // 修复：添加 @Volatile 确保跨线程可见性
+    @Volatile internal var randomKey = "portal_" + Random.nextDouble()
 
-    private var isLoadedLibrary = false
+    @Volatile private var isLoadedLibrary = false
 
     @SuppressLint("UnsafeDynamicallyLoadedCode")
     fun handleInstruction(command: String, rely: Bundle): Boolean {
