@@ -30,7 +30,7 @@ import moe.fuqiuluo.xposed.utils.hookAllMethods
 import moe.fuqiuluo.xposed.utils.onceHookAllMethod
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
-import java.util.concurrent.LinkedBlockingQueue
+import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 import kotlin.uuid.ExperimentalUuidApi
@@ -155,7 +155,8 @@ data class MockGnssData(
 )
 
 internal object LocationServiceHook: BaseLocationHook() {
-    val locationListeners = LinkedBlockingQueue<Pair<String, IInterface>>()
+    // 修复：使用 Set 去重，避免重复添加同一监听器
+    internal val locationListeners = Collections.synchronizedSet(mutableSetOf<Pair<String, IInterface>>())
 
     // 记录已经 hook 过的 ILocationListener 实现类，避免重复 hook
     private val hookedListenerClasses = Collections.synchronizedSet(HashSet<String>())
@@ -372,15 +373,10 @@ internal object LocationServiceHook: BaseLocationHook() {
 
                 classCallback.onceHookAllMethod("onLocationBatch", beforeHook onLocationBatch@ {
                     if (args.isEmpty()) return@onLocationBatch
-
-                    if (!FakeLoc.enable) {
-                        return@onLocationBatch
-                    }
-
+                    if (!FakeLoc.enable) return@onLocationBatch
                     if (FakeLoc.enableDebugLog) {
                         Logger.debug("onLocationBatch: injected!")
                     }
-
                     val location = (args[0] ?: return@onLocationBatch) as Location
                     args[0] = injectLocation(location)
                 })
@@ -485,7 +481,9 @@ internal object LocationServiceHook: BaseLocationHook() {
 
                         if (!FakeLoc.enableMockGnss) return@beforeHook
 
-                        val svCount = Random.nextInt(FakeLoc.minSatellites, MAX_SATELLITES + 1)
+                        // 修复：限制卫星数量范围，避免越界
+                        val minSat = FakeLoc.minSatellites.coerceIn(1, MAX_SATELLITES)
+                        val svCount = Random.nextInt(minSat, MAX_SATELLITES + 1)
                         val mockGps = MockGnssData(
                             svCount = svCount,
                             svidWithFlags = IntArray(svCount),
