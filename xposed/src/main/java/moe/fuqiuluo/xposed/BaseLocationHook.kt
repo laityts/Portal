@@ -128,6 +128,14 @@ abstract class BaseLocationHook: BaseDivineService() {
     }
 
     fun injectNMEA(nmeaStr: String): String? {
+        // 过滤非 NMEA 语句（必须以 '$' 开头）
+        if (!nmeaStr.startsWith('$')) {
+            if (FakeLoc.enableDebugLog) {
+                Logger.debug("Ignoring non-NMEA string: $nmeaStr")
+            }
+            return null
+        }
+
         if (!FakeLoc.enable) {
             return null
         }
