@@ -157,6 +157,9 @@ data class MockGnssData(
 internal object LocationServiceHook: BaseLocationHook() {
     val locationListeners = LinkedBlockingQueue<Pair<String, IInterface>>()
 
+    // 记录已经 hook 过的 ILocationListener 实现类，避免重复 hook
+    private val hookedListenerClasses = Collections.synchronizedSet(HashSet<String>())
+
     // A random command is generated to prevent some apps from detecting Portal
     operator fun invoke(classLoader: ClassLoader) {
         val cLocationManagerService = XposedHelpers.findClassIfExists("com.android.server.location.LocationManagerService", classLoader)
@@ -823,38 +826,54 @@ internal object LocationServiceHook: BaseLocationHook() {
 
     private fun hookILocationListener(listener: Any) {
         val classListener = listener.javaClass
-        if (FakeLoc.enableDebugLog)
-            Logger.debug("will hook ILocationListener: ${classListener.name}")
+        val className = classListener.name
 
-        if(XposedBridge.hookAllMethods(classListener, "onLocationChanged", object: XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    if (param.args.isEmpty()) return
-                    if (!FakeLoc.enable) return
-
-                    when (param.args[0]) {
-                        is Location -> {
-                            val location = param.args[0] as? Location ?: run {
-                                param.result = null
-                                return
-                            }
-                            param.args[0] = injectLocation(location)
-                        }
-
-                        is List<*> -> {
-                            val locations = param.args[0] as List<*>
-                            param.args[0] = locations.map { injectLocation(it as Location) }
-                        }
-                        else -> Logger.error("onLocationChanged args is not `Location`")
-                    }
-
-                    if (FakeLoc.enableDebugLog) {
-                        Logger.debug("${param.method}: injected! ${param.args[0]}")
-                    }
-                }
-            }).isEmpty()) {
-            Logger.error("hook onLocationChanged failed")
-            return // If the hook fails, the listener is not added
+        // 检查是否已经 hook 过该类，避免重复注册
+        if (hookedListenerClasses.contains(className)) {
+            if (FakeLoc.enableDebugLog) {
+                Logger.debug("ILocationListener class $className already hooked, skip")
+            }
+            return
         }
+
+        if (FakeLoc.enableDebugLog) {
+            Logger.debug("will hook ILocationListener: $className")
+        }
+
+        val hookResult = XposedBridge.hookAllMethods(classListener, "onLocationChanged", object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                if (param.args.isEmpty()) return
+                if (!FakeLoc.enable) return
+
+                when (param.args[0]) {
+                    is Location -> {
+                        val location = param.args[0] as? Location ?: run {
+                            param.result = null
+                            return
+                        }
+                        param.args[0] = injectLocation(location)
+                    }
+
+                    is List<*> -> {
+                        val locations = param.args[0] as List<*>
+                        param.args[0] = locations.map { injectLocation(it as Location) }
+                    }
+                    else -> Logger.error("onLocationChanged args is not `Location`")
+                }
+
+                if (FakeLoc.enableDebugLog) {
+                    Logger.debug("${param.method}: injected! ${param.args[0]}")
+                }
+            }
+        })
+
+        if (hookResult.isEmpty()) {
+            Logger.error("hook onLocationChanged failed for $className")
+            return
+        }
+
+        // 记录该类已成功 hook
+        hookedListenerClasses.add(className)
     }
 
 //    private fun startDaemon(classLoader: ClassLoader) {
