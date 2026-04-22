@@ -1,20 +1,20 @@
 <resources>
-    <string name="app_name">System Service</string>
-    <string name="navigation_drawer_open">Open navigation drawer</string>
-    <string name="navigation_drawer_close">Close navigation drawer</string>
+    <string name="app_name">Portal</string>
+    <string name="navigation_drawer_open">打开导航抽屉</string>
+    <string name="navigation_drawer_close">关闭导航抽屉</string>
     <string name="nav_header_title">Portal</string>
     <string name="nav_header_subtitle">仅提供学习与交流，请3小时内删除</string>
-    <string name="nav_header_desc">Navigation header</string>
-    <string name="action_settings">Settings</string>
+    <string name="nav_header_desc">导航头部</string>
+    <string name="action_settings">设置</string>
     <string name="action_search">搜索</string>
     <string name="action_info">信息</string>
 
-    <string name="menu_home">Home</string>
-    <string name="menu_mock">Location Mock</string>
-    <string name="menu_route_mock">Route Mock</string>
-    <string name="menu_gnss_mock">Gnss Mock</string>
-    <string name="menu_route_mock_edit">Route Mock Edit</string>
-    <string name="menu_setting">Setting</string>
+    <string name="menu_home">主页</string>
+    <string name="menu_mock">位置模拟</string>
+    <string name="menu_route_mock">路线模拟</string>
+    <string name="menu_gnss_mock">卫星模拟</string>
+    <string name="menu_route_mock_edit">路线模拟编辑</string>
+    <string name="menu_setting">设置</string>
     <string name="request_permission">能否给我一个权限呢？</string>
     <string name="follow_location">镜头跟随</string>
     <string name="add_route">创建路线</string>
@@ -67,7 +67,7 @@
     <string name="item_report_duration_title">位置上报间隔</string>
     <string name="item_report_duration_desc">上报位置的频率单位毫秒(ms)</string>
     <string name="item_report_duration_value">100ms</string>
-    <string name="gnss_mock">Gnss Mock</string>
+    <string name="gnss_mock">卫星模拟</string>
     <string name="satellites_info">星图信息</string>
     <string name="zero">0 G</string>
     <string name="in_view_left_item">可用卫星数量</string>
