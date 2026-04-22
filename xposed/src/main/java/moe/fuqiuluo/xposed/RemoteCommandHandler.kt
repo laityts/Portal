@@ -15,7 +15,9 @@ import kotlin.random.Random
 object RemoteCommandHandler {
     private val proxyBinders by lazy { Collections.synchronizedList(arrayListOf<IBinder>()) }
     private val needProxyCmd = arrayOf("start", "stop", "set_speed_amp", "set_altitude", "set_speed", "update_location", "set_bearing", "move", "put_config")
-    internal val randomKey by lazy { "portal_" + Random.nextDouble() }
+    // 关键修复：将 randomKey 改为可变（var），允许子进程同步 system_server 的 key
+    internal var randomKey = "portal_" + Random.nextDouble()
+
     private var isLoadedLibrary = false
 
     @SuppressLint("UnsafeDynamicallyLoadedCode")

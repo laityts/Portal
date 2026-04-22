@@ -62,6 +62,9 @@ abstract class BaseDivineService {
             return false
         }
 
+        // 将 system_server 返回的 key 设置为当前进程的 randomKey
+        RemoteCommandHandler.randomKey = randomKey
+
         syncConfig(locationManager, randomKey)
 
         rely.putBinder("proxy", object: Binder() {
