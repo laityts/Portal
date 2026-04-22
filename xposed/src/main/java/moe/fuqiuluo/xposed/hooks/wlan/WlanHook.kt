@@ -68,7 +68,14 @@ object WlanHook {
                 Logger.debug("In getConnectionInfo with caller: $packageName, state: ${FakeLoc.enableMockWifi}")
 
             if (FakeLoc.enableMockWifi && !BinderUtils.isSystemPackages(packageName)) {
-                val wifiInfo = WifiInfo::class.java.getConstructor().newInstance()
+                // 修复：使用安全的方式创建 WifiInfo 实例
+                val wifiInfo = try {
+                    // 尝试使用无参构造（如果存在）
+                    WifiInfo::class.java.getDeclaredConstructor().apply { isAccessible = true }.newInstance()
+                } catch (e: NoSuchMethodException) {
+                    // 降级：使用 XposedHelpers.newInstance
+                    XposedHelpers.newInstance(WifiInfo::class.java) as WifiInfo
+                }
                 XposedHelpers.callMethod(wifiInfo, "setMacAddress", "02:00:00:00:00:00")
                 XposedHelpers.callMethod(wifiInfo, "setBSSID", "02:00:00:00:00:00")
                 result = wifiInfo
