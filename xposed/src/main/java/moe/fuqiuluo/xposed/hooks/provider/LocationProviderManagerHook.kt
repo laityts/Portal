@@ -237,7 +237,7 @@ object LocationProviderManagerHook {
                 Logger.error("hook LocationProviderManager.getCurrentLocation failed")
             }
         }
-
+        // 修复：移除错误清空 mRegistrations 的逻辑，只修改 locationResult
         cLocationProviderManager.onceHookMethodBefore("onReportLocation") {
             val fieldMRegistrations = XposedHelpers.findFieldIfExists(cLocationProviderManager, "mRegistrations")
             if (fieldMRegistrations == null) {
@@ -252,7 +252,7 @@ object LocationProviderManagerHook {
             }
 
             val registrations = fieldMRegistrations.get(thisObject) as ArrayMap<*, *>
-            val newRegistrations = ArrayMap<Any, Any>()
+            // 直接遍历原有注册表，修改 locationResult，不替换 Map
             registrations.forEach { registration ->
                 val value = registration.value ?: return@forEach
                 val locationResult = args[0]
@@ -311,8 +311,6 @@ object LocationProviderManagerHook {
             if (FakeLoc.enableDebugLog) {
                 Logger.debug("onReportLocation: injected!")
             }
-
-            fieldMRegistrations.set(thisObject, newRegistrations)
         }
     }
 
