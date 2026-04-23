@@ -928,7 +928,12 @@ internal object LocationServiceHook: BaseLocationHook() {
         if (FakeLoc.enableDebugLog) {
             Logger.debug("==> callOnLocationChanged: ${locationListeners.size}")
         }
-        locationListeners.forEach { listenerWithProvider ->
+        // 在锁外复制一份快照，避免长时间持有锁
+        val snapshot: List<Pair<String, IInterface>>
+        synchronized(locationListeners) {
+            snapshot = locationListeners.toList()
+        }
+        snapshot.forEach { listenerWithProvider ->
             val listener = listenerWithProvider.second
             var location = FakeLoc.lastLocation
             if (location == null) {
