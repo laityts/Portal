@@ -133,13 +133,21 @@ object SensorReplayPlayer {
     private var lastStateChangeTime = 0L
     private var wasMoving = false
 
+    private val configReadLock = Any()
+    private var lastConfigReadTime = 0L
+
     fun getSensorValues(sensorType: Int, currentSpeed: Double, currentHeading: Double): FloatArray {
         val now = System.currentTimeMillis()
         if (!isInitialized) return FloatArray(0)
 
-        if (now - lastQueryTime > 1000) {
-            moe.fuqiuluo.xposed.utils.FakeLoc.readConfigFromFile()
-            lastQueryTime = now
+        // 双重检查锁定，避免多线程同时读取配置文件
+        if (now - lastConfigReadTime > 1000) {
+            synchronized(configReadLock) {
+                if (now - lastConfigReadTime > 1000) {
+                    moe.fuqiuluo.xposed.utils.FakeLoc.readConfigFromFile()
+                    lastConfigReadTime = now
+                }
+            }
         }
         
         val localSpeed = moe.fuqiuluo.xposed.utils.FakeLoc.speed
