@@ -8,16 +8,22 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.channels.FileLock
+import java.util.concurrent.locks.ReentrantReadWriteLock
 
 object FakeLoc {
     /**
      * 是否允许打印日志
      */
+    @Volatile
     var enableLog = true
 
     /**
      * 是否允许打印调试日志
      */
+    @Volatile
     var enableDebugLog = true
 
     /**
@@ -41,56 +47,70 @@ object FakeLoc {
     /**
      * 是否禁用GetCurrentLocation方法（在部分系统不禁用可能导致hook失效）
      */
+    @Volatile
     var disableGetCurrentLocation = true
 
     /**
      * 是否禁用RegisterLocationListener方法
      */
+    @Volatile
     var disableRegisterLocationListener = false
 
     /**
      * 如果TelephonyHook失效，可能需要打开此开关
      */
+    @Volatile
     var disableFusedLocation = true
+    @Volatile
     var disableNetworkLocation = true
 
+    @Volatile
     var disableRequestGeofence = false
+    @Volatile
     var disableGetFromLocation = false
 
     /**
      * 是否允许AGPS模块（当前没什么鸟用）
      */
+    @Volatile
     var enableAGPS = false
 
     /**
      * 是否允许NMEA模块
      */
+    @Volatile
     var enableNMEA = false
 
     /**
      * 是否隐藏模拟位置
      */
+    @Volatile
     var hideMock = true
 
     /**
      * may cause system to crash
      */
+    @Volatile
     var hookWifi = true
 
     /**
      * 将网络定位降级为Cdma
      */
+    @Volatile
     var needDowngradeToCdma = true
+    @Volatile
     var isSystemServerProcess = false
 
     /**
      * 模拟最小卫星数量
      */
+    @Volatile
     var minSatellites = 12
 
     /**
      * 反定位复原加强（启用后将导致部分应用在关闭Portal后需要重新启动才能重新获取定位）
      */
+    @Volatile
     var loopBroadcastLocation = false
 
     /**
@@ -103,7 +123,7 @@ object FakeLoc {
 
     @Volatile var speed = 3.05
 
-    var speedAmplitude = 1.0
+    @Volatile var speedAmplitude = 1.0
 
     @Volatile var hasBearings = false
 
@@ -160,16 +180,20 @@ object FakeLoc {
         return Pair(newLat, newLon)
     }
 
-
-
     // Cross-Process Sync
     private const val CONFIG_FILE_PATH = "/data/local/tmp/portal_config.json"
+
+    // 文件读写锁，防止多进程/多线程同时写入
+    private val fileLock = ReentrantReadWriteLock()
+    private val writeLock = fileLock.writeLock()
+    private val readLock = fileLock.readLock()
 
     fun syncConfigToFile() {
         if (!isSystemServerProcess) return 
         // Only System Server writes to avoid conflicts (though User might change settings in App UI too? 
-        // Actually App UI talks to RemoteCommandHandler(SystemServer), so System Server is the source of truth.)
+        // Actually App UI talks to RemoteCommandHandler(SystemServer), so System Server is the source of truth.
         
+        writeLock.lock()
         try {
             val json = org.json.JSONObject()
             json.put("enable", enable)
@@ -181,19 +205,33 @@ object FakeLoc {
             // JNI Native Update
             moe.fuqiuluo.xposed.FakeLocation.instance?.nativeUpdateConfig(enable, speed, bearing)
             
-            val file = java.io.File(CONFIG_FILE_PATH)
-            file.writeText(json.toString())
-            // Ensure world readable
-            file.setReadable(true, false)
-            file.setWritable(true, false) 
+            // 使用临时文件 + 原子替换避免读进程读到不完整内容
+            val file = File(CONFIG_FILE_PATH)
+            val tempFile = File("${CONFIG_FILE_PATH}.tmp")
+            tempFile.writeText(json.toString())
+            // 确保权限正确
+            tempFile.setReadable(true, false)
+            tempFile.setWritable(true, false)
+            // 原子替换
+            if (tempFile.renameTo(file)) {
+                // 成功
+            } else {
+                // 降级：直接写原文件
+                file.writeText(json.toString())
+                file.setReadable(true, false)
+                file.setWritable(true, false)
+            }
         } catch (e: Exception) {
             // moe.fuqiuluo.xposed.utils.Logger.error("Failed to sync config to file", e)
+        } finally {
+            writeLock.unlock()
         }
     }
 
     fun readConfigFromFile() {
+        readLock.lock()
         try {
-            val file = java.io.File(CONFIG_FILE_PATH)
+            val file = File(CONFIG_FILE_PATH)
             if (!file.exists()) return
 
             val text = file.readText()
@@ -208,8 +246,7 @@ object FakeLoc {
                 // We should set the backing field or use setter.
                 // But `bearing` property has no setter in the code snippet, it uses `field`.
                 // Wait, the provided code for FakeLoc showed `bearing` has a getter but no explicit setter in the snippet?
-                // Looking at snippet: `var bearing = 0.0` then `get()`. It implies default setter.
-                // Wait, line 110: `var bearing = 0.0`. Line 111 `get()`. 
+                // Looking at snippet: `var bearing = 0.0` then `get()`. 
                 // Since it's a `var`, it has a setter.
                 bearing = newBearing
             }
@@ -220,6 +257,8 @@ object FakeLoc {
             if (enableDebugLog) {
                 Logger.error("Failed to read config from $CONFIG_FILE_PATH", e)
             }
+        } finally {
+            readLock.unlock()
         }
     }
 }

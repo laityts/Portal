@@ -38,14 +38,17 @@ object RemoteCommandHandler {
 
         kotlin.runCatching {
             if (proxyBinders.isNotEmpty() && needProxyCmd.any { it == commandId }) {
-                proxyBinders.removeIf {
-                    if (it.isBinderAlive && it.pingBinder()) {
-                        val data = Parcel.obtain()
-                        data.writeBundle(rely)
-                        it.transact(1, data, null, 0)
-                        data.recycle()
-                        false
-                    } else true
+                // 显式同步 block，避免 removeIf 并发修改异常
+                synchronized(proxyBinders) {
+                    proxyBinders.removeIf {
+                        if (it.isBinderAlive && it.pingBinder()) {
+                            val data = Parcel.obtain()
+                            data.writeBundle(rely)
+                            it.transact(1, data, null, 0)
+                            data.recycle()
+                            false
+                        } else true
+                    }
                 }
             }
         }.onFailure {
@@ -60,7 +63,9 @@ object RemoteCommandHandler {
             "set_proxy" -> {
                 Logger.info("SubProxyBinder: ${rely.getBinder("proxy")} from ${BinderUtils.getUidPackageNames()}!")
                 rely.getBinder("proxy")?.let {
-                    proxyBinders.add(it)
+                    synchronized(proxyBinders) {
+                        proxyBinders.add(it)
+                    }
                 }
                 return true
             }

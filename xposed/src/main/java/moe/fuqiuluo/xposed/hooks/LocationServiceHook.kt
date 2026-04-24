@@ -161,6 +161,9 @@ internal object LocationServiceHook: BaseLocationHook() {
     // 记录已经 hook 过的 ILocationListener 实现类，避免重复 hook
     private val hookedListenerClasses = Collections.synchronizedSet(HashSet<String>())
 
+    // 存储每个 listener binder 对应的 DeathRecipient，用于正确解绑
+    private val deathRecipientMap = Collections.synchronizedMap(mutableMapOf<IBinder, IBinder.DeathRecipient>())
+
     // A random command is generated to prevent some apps from detecting Portal
     operator fun invoke(classLoader: ClassLoader) {
         val cLocationManagerService = XposedHelpers.findClassIfExists("com.android.server.location.LocationManagerService", classLoader)
@@ -903,25 +906,39 @@ internal object LocationServiceHook: BaseLocationHook() {
 //        }
 //    }
 
+    // 修复：存储 DeathRecipient 并正确解绑
     private fun addLocationListenerInner(provider: String, listener: IInterface) {
-        val mDeathRecipient = object: IBinder.DeathRecipient {
-            override fun binderDied() {}
+        val binder = listener.asBinder()
+        val deathRecipient = object : IBinder.DeathRecipient {
+            override fun binderDied() {
+                // 统一调用带参数的版本
+                binderDied(binder)
+            }
             override fun binderDied(who: IBinder) {
                 who.unlinkToDeath(this, 0)
+                synchronized(deathRecipientMap) { deathRecipientMap.remove(who) }
                 removeLocationListenerByBinder(who)
             }
         }
-        listener.asBinder().linkToDeath(mDeathRecipient, 0)
+        binder.linkToDeath(deathRecipient, 0)
+        deathRecipientMap[binder] = deathRecipient
         locationListeners.add(provider to listener)
         hookILocationListener(listener)
     }
 
     private fun removeLocationListenerInner(listener: IInterface) {
-        removeLocationListenerByBinder(listener.asBinder())
+        val binder = listener.asBinder()
+        deathRecipientMap[binder]?.let { dr ->
+            binder.unlinkToDeath(dr, 0)
+            synchronized(deathRecipientMap) { deathRecipientMap.remove(binder) }
+        }
+        removeLocationListenerByBinder(binder)
     }
 
     private fun removeLocationListenerByBinder(binder: IBinder) {
-        locationListeners.removeIf { it.second.asBinder() == binder }
+        synchronized(locationListeners) {
+            locationListeners.removeIf { it.second.asBinder() == binder }
+        }
     }
 
     fun callOnLocationChanged() {
