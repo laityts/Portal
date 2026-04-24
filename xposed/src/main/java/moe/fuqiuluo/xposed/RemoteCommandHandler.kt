@@ -242,7 +242,7 @@ object RemoteCommandHandler {
                 val enableNMEA = rely.getBoolean("enable_nmea", FakeLoc.enableNMEA)
                 val disableRequestGeofence = rely.getBoolean("disable_request_geofence", FakeLoc.disableRequestGeofence)
                 val disableGetFromLocation = rely.getBoolean("disable_get_from_location", FakeLoc.disableGetFromLocation)
-
+                
                 FakeLoc.enable = enable
                 FakeLoc.speed = speed
                 FakeLoc.altitude = altitude
@@ -257,7 +257,22 @@ object RemoteCommandHandler {
                 FakeLoc.enableNMEA = enableNMEA
                 FakeLoc.disableRequestGeofence = disableRequestGeofence
                 FakeLoc.disableGetFromLocation = disableGetFromLocation
-
+                
+                // 新增缺失字段
+                val enableMockGnss = rely.getBoolean("enable_mock_gnss", FakeLoc.enableMockGnss)
+                val enableMockWifi = rely.getBoolean("enable_mock_wifi", FakeLoc.enableMockWifi)
+                val disableNetworkLocation = rely.getBoolean("disable_network_location", FakeLoc.disableNetworkLocation)
+                val loopBroadcastLocation = rely.getBoolean("loop_broadcast_location", FakeLoc.loopBroadcastLocation)
+                val hideMock = rely.getBoolean("hide_mock", FakeLoc.hideMock)
+                val hookWifi = rely.getBoolean("hook_wifi", FakeLoc.hookWifi)
+                
+                FakeLoc.enableMockGnss = enableMockGnss
+                FakeLoc.enableMockWifi = enableMockWifi
+                FakeLoc.disableNetworkLocation = disableNetworkLocation
+                FakeLoc.loopBroadcastLocation = loopBroadcastLocation
+                FakeLoc.hideMock = hideMock
+                FakeLoc.hookWifi = hookWifi
+                
                 FakeLoc.syncConfigToFile()
                 return true
             }
@@ -281,6 +296,14 @@ object RemoteCommandHandler {
                 rely.putBoolean("hide_mock", FakeLoc.hideMock)
                 rely.putBoolean("hook_wifi", FakeLoc.hookWifi)
                 rely.putBoolean("need_downgrade_to_2g", FakeLoc.needDowngradeToCdma)
+                // 新增跨进程同步字段
+                rely.putBoolean("enable_mock_gnss", FakeLoc.enableMockGnss)
+                rely.putBoolean("enable_mock_wifi", FakeLoc.enableMockWifi)
+                rely.putBoolean("disable_network_location", FakeLoc.disableNetworkLocation)
+                rely.putBoolean("loop_broadcast_location", FakeLoc.loopBroadcastLocation)
+                rely.putInt("min_satellites", FakeLoc.minSatellites)
+                rely.putBoolean("disable_request_geofence", FakeLoc.disableRequestGeofence)
+                rely.putBoolean("disable_get_from_location", FakeLoc.disableGetFromLocation)
                 return true
             }
             "broadcast_location" -> {

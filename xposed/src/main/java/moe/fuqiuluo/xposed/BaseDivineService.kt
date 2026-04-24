@@ -124,6 +124,16 @@ abstract class BaseDivineService {
             FakeLoc.hideMock = rely.getBoolean("hide_mock", FakeLoc.hideMock)
             FakeLoc.hookWifi = rely.getBoolean("hook_wifi", FakeLoc.hookWifi)
             FakeLoc.needDowngradeToCdma = rely.getBoolean("need_downgrade_to_2g", FakeLoc.needDowngradeToCdma)
+    
+            // 新增同步字段
+            FakeLoc.enableMockGnss = rely.getBoolean("enable_mock_gnss", FakeLoc.enableMockGnss)
+            FakeLoc.enableMockWifi = rely.getBoolean("enable_mock_wifi", FakeLoc.enableMockWifi)
+            FakeLoc.disableNetworkLocation = rely.getBoolean("disable_network_location", FakeLoc.disableNetworkLocation)
+            FakeLoc.loopBroadcastLocation = rely.getBoolean("loop_broadcast_location", FakeLoc.loopBroadcastLocation)
+            FakeLoc.minSatellites = rely.getInt("min_satellites", FakeLoc.minSatellites)
+            FakeLoc.disableRequestGeofence = rely.getBoolean("disable_request_geofence", FakeLoc.disableRequestGeofence)
+            FakeLoc.disableGetFromLocation = rely.getBoolean("disable_get_from_location", FakeLoc.disableGetFromLocation)
+    
             Logger.debug("Synced config for DivineService")
         } else {
             Logger.error("Failed to sync config for DivineService")
