@@ -35,6 +35,7 @@ object LocationManagerHook: BaseLocationHook() {
             XposedBridge.hookAllMethods(cLocationManager, "getLastLocation", hookGetLastKnownLocation)
         }
 
+        // 增强：支持 List<Location> 和单个 Location 的注入
         val hookOnLocation = object: XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
                 if (param.args.isEmpty() || param.args[0] == null) return
@@ -68,6 +69,7 @@ object LocationManagerHook: BaseLocationHook() {
                         if (param == null || param.args.size > 1 || param.args[1] == null) return
 
                         val listener = param.args[1]
+                        // 钩住所有名为 onLocationChanged 的方法（不限参数类型）
                         listener.javaClass.onceHookAllMethod("onLocationChanged", hookOnLocation)
                     }
                 })
@@ -85,8 +87,9 @@ object LocationManagerHook: BaseLocationHook() {
                             param.args?.joinToString { it?.javaClass.toString() }
                         })")
                     }
-                }.forEach {
-                    it.javaClass.onceHookAllMethod("onLocationChanged", hookOnLocation)
+                }.forEach { listener ->
+                    // 钩住所有 onLocationChanged 重载版本
+                    listener.javaClass.onceHookAllMethod("onLocationChanged", hookOnLocation)
                 }
             }
         }
