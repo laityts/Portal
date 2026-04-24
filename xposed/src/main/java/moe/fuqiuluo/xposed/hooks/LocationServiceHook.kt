@@ -949,6 +949,14 @@ internal object LocationServiceHook: BaseLocationHook() {
         synchronized(locationListeners) {
             snapshot = locationListeners.toList()
         }
+    
+        // 获取 IRemoteCallback 类用于创建空回调（仅当需要时）
+        val cIRemoteCallback = try {
+            Class.forName("android.os.IRemoteCallback")
+        } catch (e: ClassNotFoundException) {
+            null
+        }
+    
         snapshot.forEach { listenerWithProvider ->
             val listener = listenerWithProvider.second
             var location = FakeLoc.lastLocation
@@ -962,20 +970,12 @@ internal object LocationServiceHook: BaseLocationHook() {
             location = injectLocation(location)
             var called = false
             var error: Throwable? = null
-            kotlin.runCatching {
-                val locations = listOf(location)
-                val mOnLocationChanged = XposedHelpers.findMethodBestMatch(listener.javaClass, "onLocationChanged", locations, null)
-                XposedBridge.invokeOriginalMethod(mOnLocationChanged, listener, arrayOf(locations, null))
-                called = true
-            }.onFailure {
-                if (it is InvocationTargetException && it.targetException is DeadObjectException) {
-                    return@forEach
-                }
-                error = it
-            }
-
+    
+            // 修复：优先尝试单参数 Location 版本
             if (!called) runCatching {
-                val mOnLocationChanged = XposedHelpers.findMethodBestMatch(listener.javaClass, "onLocationChanged", location)
+                val mOnLocationChanged = XposedHelpers.findMethodBestMatch(
+                    listener.javaClass, "onLocationChanged", location
+                )
                 XposedBridge.invokeOriginalMethod(mOnLocationChanged, listener, arrayOf(location))
                 called = true
             }.onFailure {
@@ -984,13 +984,48 @@ internal object LocationServiceHook: BaseLocationHook() {
                 }
                 error = it
             }
-
+    
+            // 其次尝试单参数 List<Location> 版本
+            if (!called) runCatching {
+                val locations = listOf(location)
+                val mOnLocationChanged = XposedHelpers.findMethodBestMatch(
+                    listener.javaClass, "onLocationChanged", locations
+                )
+                XposedBridge.invokeOriginalMethod(mOnLocationChanged, listener, arrayOf(locations))
+                called = true
+            }.onFailure {
+                if (it is InvocationTargetException && it.targetException is DeadObjectException) {
+                    return@forEach
+                }
+                error = it
+            }
+    
+            // 最后尝试双参数 (List<Location>, IRemoteCallback) 版本，并提供空回调桩
+            if (!called && cIRemoteCallback != null) runCatching {
+                val locations = listOf(location)
+                // 创建空回调桩实现，避免传递 null
+                val emptyCallback = java.lang.reflect.Proxy.newProxyInstance(
+                    cIRemoteCallback.classLoader,
+                    arrayOf(cIRemoteCallback)
+                ) { _, _, _ -> null }
+                val mOnLocationChanged = XposedHelpers.findMethodBestMatch(
+                    listener.javaClass, "onLocationChanged", locations, emptyCallback
+                )
+                XposedBridge.invokeOriginalMethod(mOnLocationChanged, listener, arrayOf(locations, emptyCallback))
+                called = true
+            }.onFailure {
+                if (it is InvocationTargetException && it.targetException is DeadObjectException) {
+                    return@forEach
+                }
+                error = it
+            }
+    
             if (!called) {
                 Logger.error("callOnLocationChanged failed: " + error?.stackTraceToString())
                 Logger.error("The listener all methods: " + listener.javaClass.declaredMethods.joinToString { it.name })
             }
         }
-
+    
         if (FakeLoc.enableDebugLog) {
             Logger.debug("==> callOnLocationChanged: end")
         }
