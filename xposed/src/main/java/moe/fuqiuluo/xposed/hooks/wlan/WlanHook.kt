@@ -61,14 +61,14 @@ object WlanHook {
 
     private fun hookWifiServiceImpl(wifiClazz: Class<*>) {
         if (!FakeLoc.hookWifi) return
-
+    
         wifiClazz.hookAllMethods("getConnectionInfo", beforeHook {
             val packageName = args[0] as String
             if (FakeLoc.enableDebugLog)
                 Logger.debug("In getConnectionInfo with caller: $packageName, state: ${FakeLoc.enableMockWifi}")
-
+    
             if (FakeLoc.enableMockWifi && !BinderUtils.isSystemPackages(packageName)) {
-                // 修复：使用安全的方式创建 WifiInfo 实例
+                // 修复：使用字段反射构造 WifiInfo，避免调用不存在的公开方法
                 val wifiInfo = try {
                     // 尝试使用无参构造（如果存在）
                     WifiInfo::class.java.getDeclaredConstructor().apply { isAccessible = true }.newInstance()
@@ -76,21 +76,34 @@ object WlanHook {
                     // 降级：使用 XposedHelpers.newInstance
                     XposedHelpers.newInstance(WifiInfo::class.java) as WifiInfo
                 }
-                XposedHelpers.callMethod(wifiInfo, "setMacAddress", "02:00:00:00:00:00")
-                XposedHelpers.callMethod(wifiInfo, "setBSSID", "02:00:00:00:00:00")
+                // 使用反射设置私有字段，而非调用可能不存在的方法
+                runCatching {
+                    val fieldMac = WifiInfo::class.java.getDeclaredField("mMacAddress")
+                    fieldMac.isAccessible = true
+                    fieldMac.set(wifiInfo, "02:00:00:00:00:00")
+                }.onFailure {
+                    if (FakeLoc.enableDebugLog) Logger.debug("Failed to set mMacAddress: ${it.message}")
+                }
+                runCatching {
+                    val fieldBSSID = WifiInfo::class.java.getDeclaredField("mBSSID")
+                    fieldBSSID.isAccessible = true
+                    fieldBSSID.set(wifiInfo, "02:00:00:00:00:00")
+                }.onFailure {
+                    if (FakeLoc.enableDebugLog) Logger.debug("Failed to set mBSSID: ${it.message}")
+                }
                 result = wifiInfo
             }
         })
-
+    
         wifiClazz.hookAllMethods("getScanResults", afterHook {
             val packageName = args[0] as? String
             if (packageName.isNullOrEmpty()) {
                 return@afterHook
             }
-
+    
             if (FakeLoc.enableDebugLog)
                 Logger.debug("In getScanResults with caller: $packageName, state: ${FakeLoc.enableMockWifi}")
-
+    
             if(FakeLoc.enableMockWifi) {
                 if(result == null) {
                     return@afterHook 
@@ -100,12 +113,12 @@ object WlanHook {
                     result = arrayListOf<Any>()
                     return@afterHook
                 } // 针对小米系列机型的wifi扫描返回
-
+    
                 if (result is Array<*>) {
                     result = arrayOf<Any>()
                     return@afterHook
                 } // 针对一加系列机型的wifi扫描返回
-
+    
                 // 在高于安卓10的版本，Google 引入了 APEX（Android Pony EXpress）文件格式来封装系统组件，包括系统服务~！
                 // 上面的代码在高版本将无效导致应用可以通过网络AGPS到正常的位置（现象就是位置拉回）
                 // 这里针对一个普通的版本进行一个修复
@@ -120,7 +133,7 @@ object WlanHook {
                 }.onFailure {
                     Logger.error("getScanResults: ParceledListSlice failed", it)
                 }
-
+    
                 if (FakeLoc.enableDebugLog) {
                     Logger.error("getScanResults: Unknown return type: ${result?.javaClass?.name}")
                 }
