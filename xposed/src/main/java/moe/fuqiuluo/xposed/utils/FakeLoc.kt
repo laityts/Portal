@@ -261,4 +261,44 @@ object FakeLoc {
             readLock.unlock()
         }
     }
+
+    // ==================== 平滑卫星数量生成器 ====================
+    private const val MIN_SATELLITES = 4
+    private const val MAX_SATELLITES = 35
+    
+    private var lastSatCountUpdateTime = 0L
+    private var cachedSatCount = 12
+    
+    /**
+     * 获取当前模拟的可见卫星数量（平滑模型）
+     * 基于：
+     * - 时间正弦波（模拟卫星轨道变化）
+     * - 当前速度（开阔地增加，城市峡谷减少）
+     */
+    @Synchronized
+    fun updateSatelliteCount(): Int {
+        val now = System.currentTimeMillis()
+        // 每秒更新一次，避免高频计算
+        if (now - lastSatCountUpdateTime < 1000) {
+            return cachedSatCount
+        }
+        lastSatCountUpdateTime = now
+    
+        // 正弦波周期 60 秒，振幅 10，基线 12 -> 范围 2~22
+        val angle = (now % 60000) / 60000.0 * 2 * Math.PI
+        val sinVal = (Math.sin(angle) + 1) / 2  // 0..1
+        var baseCount = 8 + (sinVal * 20).toInt()  // 8..28
+    
+        // 根据当前速度调整（速度越快越可能开阔）
+        val spd = speed
+        when {
+            spd > 30.0 -> baseCount += 4
+            spd > 15.0 -> baseCount += 2
+            spd < 5.0  -> baseCount -= 3
+            spd < 10.0 -> baseCount -= 1
+        }
+    
+        cachedSatCount = baseCount.coerceIn(MIN_SATELLITES, MAX_SATELLITES)
+        return cachedSatCount
+    }
 }

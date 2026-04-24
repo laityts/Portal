@@ -486,7 +486,7 @@ internal object LocationServiceHook: BaseLocationHook() {
 
                         // 修复：限制卫星数量范围，避免越界
                         val minSat = FakeLoc.minSatellites.coerceIn(1, MAX_SATELLITES)
-                        val svCount = Random.nextInt(minSat, MAX_SATELLITES + 1)
+                        val svCount = FakeLoc.updateSatelliteCount()   // 使用平滑卫星数生成器
                         val mockGps = MockGnssData(
                             svCount = svCount,
                             svidWithFlags = IntArray(svCount),

@@ -90,7 +90,7 @@ abstract class BaseLocationHook: BaseDivineService() {
             location.extras = Bundle()
         }
         location.extras?.putDouble("latlon", location.latitude + location.longitude)
-        location.extras?.putInt("satellites", Random.nextInt(8, 45))
+        location.extras?.putInt("satellites", FakeLoc.updateSatelliteCount())
         location.extras?.putInt("maxCn0", Random.nextInt(30, 50))
         location.extras?.putInt("meanCn0", Random.nextInt(20, 30))
 
