@@ -906,12 +906,11 @@ internal object LocationServiceHook: BaseLocationHook() {
 //        }
 //    }
 
-    // 修复：存储 DeathRecipient 并正确解绑
+    // 修复 DeathRecipient 泄漏：正确保存和解绑
     private fun addLocationListenerInner(provider: String, listener: IInterface) {
         val binder = listener.asBinder()
         val deathRecipient = object : IBinder.DeathRecipient {
             override fun binderDied() {
-                // 统一调用带参数的版本
                 binderDied(binder)
             }
             override fun binderDied(who: IBinder) {
