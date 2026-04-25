@@ -4,7 +4,7 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
-import android.os.SystemClock   // 新增导入
+import android.os.SystemClock
 import de.robv.android.xposed.XposedHelpers
 import moe.fuqiuluo.xposed.utils.FakeLoc
 import moe.fuqiuluo.xposed.utils.Logger
@@ -46,14 +46,23 @@ abstract class BaseLocationHook: BaseDivineService() {
     
         val location = Location(originLocation.provider ?: LocationManager.GPS_PROVIDER)
         location.accuracy = if (FakeLoc.accuracy != 0.0f) FakeLoc.accuracy else originLocation.accuracy
-        val jitterLat = FakeLoc.jitterLocation()
+        
+        // ========== 修复坐标过于平滑：使用增强的抖动函数 ==========
+        // 抖动幅度随速度动态变化，方向也引入随机偏移，产生自然漂移
+        val jitterLat = FakeLoc.jitterLocation(lat = FakeLoc.latitude, lon = FakeLoc.longitude, angle = FakeLoc.bearing)
         location.latitude = jitterLat.first
         location.longitude = jitterLat.second
+        // =======================================================
+        
         location.altitude = FakeLoc.altitude
-        // ========== 速度模拟（使用配置速度 + 随机抖动） ==========
+        
+        // ========== 速度模拟：在配置速度基础上添加更多随机变化，模拟加速度波动 ==========
         // 原代码使用 originLocation.speed，导致速度异常大，现改为基于 FakeLoc.speed
+        // 增加速度的自然变化：不仅振幅，还加入正弦波周期波动
         val speedAmp = Random.nextDouble(-FakeLoc.speedAmplitude, FakeLoc.speedAmplitude)
-        var newSpeed = FakeLoc.speed + speedAmp
+        // 时间相关正弦波动（周期15秒）使速度看起来更真实
+        val timeBasedFluctuation = Math.sin(System.currentTimeMillis() / 15000.0 * Math.PI) * FakeLoc.speedAmplitude * 0.5
+        var newSpeed = FakeLoc.speed + speedAmp + timeBasedFluctuation
         if (newSpeed < 0) newSpeed = 0.0
         location.speed = newSpeed.toFloat()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && originLocation.hasSpeedAccuracy()) {

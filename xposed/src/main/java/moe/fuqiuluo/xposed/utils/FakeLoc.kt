@@ -160,23 +160,41 @@ object FakeLoc {
         return radius * c
     }
 
-    fun jitterLocation(lat: Double = latitude, lon: Double = longitude, n: Double = Random.nextDouble(0.0, accuracy.toDouble()), angle: Double = bearing): Pair<Double, Double> {
+    /**
+     * 为位置添加自然抖动模拟真实 GPS 误差和行走/驾驶时的随机偏航。
+     * @param lat 原始纬度
+     * @param lon 原始经度
+     * @param n 抖动幅度（米），若不指定则根据 speed 动态计算（速度越快抖动越大）
+     * @param angle 基准方向（用于产生非对称抖动，使轨迹更真实）
+     * @return 抖动后的经纬度对
+     */
+    fun jitterLocation(lat: Double = latitude, lon: Double = longitude, n: Double = -1.0, angle: Double = bearing): Pair<Double, Double> {
         val earthRadius = 6371000.0
-        val radiusInDegrees = n / 15 / earthRadius * (180 / PI)
+        // 动态抖动幅度：基础幅度 2m，随速度增加线性增长（最高 12m），同时叠加随机因子
+        val baseJitter = if (n > 0) n else {
+            val speedFactor = (speed.coerceIn(0.0, 30.0) / 30.0) * 10.0  // 0~10
+            2.0 + speedFactor + Random.nextDouble(0.0, 3.0)
+        }
+        // 抖动方向不完全垂直运动方向，引入随机的偏移角（-45° ~ +45°）模拟自然漂移
+        val jitterAngleOffset = Random.nextDouble(-45.0, 45.0)
+        val effectiveAngle = angle + jitterAngleOffset
+        val radiusInMeters = baseJitter * Random.nextDouble(0.5, 1.5)  // 幅度再随机
+        val radiusInDegrees = radiusInMeters / earthRadius * (180 / PI)
 
-        val jitterAngle = if (Random.nextBoolean()) angle + 45 else angle - 45
-
-        val newLat = lat + radiusInDegrees * cos(Math.toRadians(jitterAngle))
-        val newLon = lon + radiusInDegrees * sin(Math.toRadians(jitterAngle)) / cos(Math.toRadians(lat))
-
+        val newLat = lat + radiusInDegrees * cos(Math.toRadians(effectiveAngle))
+        val newLon = lon + radiusInDegrees * sin(Math.toRadians(effectiveAngle)) / cos(Math.toRadians(lat))
         return Pair(newLat, newLon)
     }
 
     fun moveLocation(lat: Double = latitude, lon: Double = longitude, n: Double, angle: Double = bearing): Pair<Double, Double> {
         val earthRadius = 6371000.0
-        val radiusInDegrees = Random.nextDouble(n, n + 1.2) / earthRadius * (180 / PI)
-        val newLat = lat + radiusInDegrees * cos(Math.toRadians(angle))
-        val newLon = lon + radiusInDegrees * sin(Math.toRadians(angle)) / cos(Math.toRadians(lat))
+        // 真实移动距离添加随机误差（模拟步长不一致）
+        val realDistance = n * Random.nextDouble(0.85, 1.15)
+        // 移动方向也添加小角度漂移（模拟无法绝对走直线）
+        val realAngle = angle + Random.nextDouble(-5.0, 5.0)
+        val radiusInDegrees = realDistance / earthRadius * (180 / PI)
+        val newLat = lat + radiusInDegrees * cos(Math.toRadians(realAngle))
+        val newLon = lon + radiusInDegrees * sin(Math.toRadians(realAngle)) / cos(Math.toRadians(lat))
         return Pair(newLat, newLon)
     }
 

@@ -4,8 +4,8 @@ import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.IBinder
 import android.os.Parcel
-import android.location.Location   // 新增导入
-import android.os.SystemClock      // 新增导入
+import android.location.Location
+import android.os.SystemClock
 import moe.fuqiuluo.dobby.Dobby
 import moe.fuqiuluo.xposed.hooks.LocationServiceHook
 import moe.fuqiuluo.xposed.utils.FakeLoc
@@ -173,13 +173,18 @@ object RemoteCommandHandler {
             "move" -> {
                 val distance = rely.getDouble("n", 0.0)
                 if (distance == 0.0) return true
-                val bearing = rely.getDouble("bearing", 0.0)
+                var bearing = rely.getDouble("bearing", 0.0)
+                // 修复坐标过于平滑：每次移动时给方向添加随机偏航（模拟走路/驾驶的自然摆动）
+                val randomYaw = Random.nextDouble(-8.0, 8.0)
+                bearing += randomYaw
+                // 归一化到 0~360
+                bearing = (bearing % 360 + 360) % 360
                 val newLoc = FakeLoc.moveLocation(
                     n = distance,
                     angle = bearing
                 )
                 if (FakeLoc.enableDebugLog) {
-                    Logger.debug("move: distance=$distance, bearing=$bearing, newLoc=$newLoc")
+                    Logger.debug("move: distance=$distance, base_bearing=${rely.getDouble("bearing", 0.0)}, final_bearing=$bearing, newLoc=$newLoc")
                 }
                 FakeLoc.bearing = bearing
                 FakeLoc.hasBearings = true
