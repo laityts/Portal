@@ -1,3 +1,5 @@
+// 文件名: FakeLoc.kt
+// 优化抖动算法，减少瞬移幅度，增加自然漂移
 package moe.fuqiuluo.xposed.utils
 
 import android.location.Location
@@ -162,23 +164,24 @@ object FakeLoc {
 
     /**
      * 为位置添加自然抖动模拟真实 GPS 误差和行走/驾驶时的随机偏航。
+     * 改进：抖动幅度大幅降低，且偏向运动方向，避免出现大幅跳跃。
      * @param lat 原始纬度
      * @param lon 原始经度
-     * @param n 抖动幅度（米），若不指定则根据 speed 动态计算（速度越快抖动越大）
+     * @param n 抖动幅度（米），若不指定则根据 speed 动态计算（速度越快抖动越大，但上限降低）
      * @param angle 基准方向（用于产生非对称抖动，使轨迹更真实）
      * @return 抖动后的经纬度对
      */
     fun jitterLocation(lat: Double = latitude, lon: Double = longitude, n: Double = -1.0, angle: Double = bearing): Pair<Double, Double> {
         val earthRadius = 6371000.0
-        // 动态抖动幅度：基础幅度 2m，随速度增加线性增长（最高 12m），同时叠加随机因子
+        // 基础抖动幅度降低：最大不超过5米，速度因子降低
         val baseJitter = if (n > 0) n else {
-            val speedFactor = (speed.coerceIn(0.0, 30.0) / 30.0) * 10.0  // 0~10
-            2.0 + speedFactor + Random.nextDouble(0.0, 3.0)
+            val speedFactor = (speed.coerceIn(0.0, 30.0) / 30.0) * 3.0  // 0~3 米
+            1.5 + speedFactor + Random.nextDouble(0.0, 1.5)  // 总体 1.5~6 米
         }
-        // 抖动方向不完全垂直运动方向，引入随机的偏移角（-45° ~ +45°）模拟自然漂移
-        val jitterAngleOffset = Random.nextDouble(-45.0, 45.0)
+        // 抖动方向更倾向于运动方向（角度偏移范围缩小到 ±20°）
+        val jitterAngleOffset = Random.nextDouble(-20.0, 20.0)
         val effectiveAngle = angle + jitterAngleOffset
-        val radiusInMeters = baseJitter * Random.nextDouble(0.5, 1.5)  // 幅度再随机
+        val radiusInMeters = baseJitter * Random.nextDouble(0.7, 1.3)  // 幅度随机范围缩小
         val radiusInDegrees = radiusInMeters / earthRadius * (180 / PI)
 
         val newLat = lat + radiusInDegrees * cos(Math.toRadians(effectiveAngle))
@@ -188,10 +191,10 @@ object FakeLoc {
 
     fun moveLocation(lat: Double = latitude, lon: Double = longitude, n: Double, angle: Double = bearing): Pair<Double, Double> {
         val earthRadius = 6371000.0
-        // 真实移动距离添加随机误差（模拟步长不一致）
-        val realDistance = n * Random.nextDouble(0.85, 1.15)
-        // 移动方向也添加小角度漂移（模拟无法绝对走直线）
-        val realAngle = angle + Random.nextDouble(-5.0, 5.0)
+        // 真实移动距离添加微小随机误差（±5%）
+        val realDistance = n * Random.nextDouble(0.95, 1.05)
+        // 移动方向也添加小角度漂移（±3°）
+        val realAngle = angle + Random.nextDouble(-3.0, 3.0)
         val radiusInDegrees = realDistance / earthRadius * (180 / PI)
         val newLat = lat + radiusInDegrees * cos(Math.toRadians(realAngle))
         val newLon = lon + radiusInDegrees * sin(Math.toRadians(realAngle)) / cos(Math.toRadians(lat))
@@ -259,13 +262,6 @@ object FakeLoc {
             if (json.has("speed")) speed = json.getDouble("speed")
             if (json.has("bearing")) {
                 val newBearing = json.getDouble("bearing")
-                // Only update if changed to avoid unnecessary re-calcs?
-                // Actually field setter logic in FakeLoc handles normalisation but not field backing.
-                // We should set the backing field or use setter.
-                // But `bearing` property has no setter in the code snippet, it uses `field`.
-                // Wait, the provided code for FakeLoc showed `bearing` has a getter but no explicit setter in the snippet?
-                // Looking at snippet: `var bearing = 0.0` then `get()`. 
-                // Since it's a `var`, it has a setter.
                 bearing = newBearing
             }
             if (json.has("speedAmplitude")) speedAmplitude = json.getDouble("speedAmplitude")

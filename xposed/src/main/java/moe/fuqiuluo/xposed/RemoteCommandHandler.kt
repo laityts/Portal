@@ -1,3 +1,5 @@
+// 文件名: RemoteCommandHandler.kt
+// 修复move命令中的随机偏航范围，使其更自然
 package moe.fuqiuluo.xposed
 
 import android.annotation.SuppressLint
@@ -174,8 +176,8 @@ object RemoteCommandHandler {
                 val distance = rely.getDouble("n", 0.0)
                 if (distance == 0.0) return true
                 var bearing = rely.getDouble("bearing", 0.0)
-                // 修复坐标过于平滑：每次移动时给方向添加随机偏航（模拟走路/驾驶的自然摆动）
-                val randomYaw = Random.nextDouble(-8.0, 8.0)
+                // 修复坐标过于平滑：减小随机偏航角度，仅添加 ±3° 的微小漂移，避免路线摆动过大
+                val randomYaw = Random.nextDouble(-3.0, 3.0)
                 bearing += randomYaw
                 // 归一化到 0~360
                 bearing = (bearing % 360 + 360) % 360
