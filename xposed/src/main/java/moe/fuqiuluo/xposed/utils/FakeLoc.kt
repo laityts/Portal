@@ -263,7 +263,7 @@ object FakeLoc {
     }
 
     // ==================== 平滑卫星数量生成器 ====================
-    private const val MIN_SATELLITES = 4
+    private const val DEFAULT_MIN_SATELLITES = 4
     private const val MAX_SATELLITES = 35
     
     private var lastSatCountUpdateTime = 0L
@@ -274,6 +274,7 @@ object FakeLoc {
      * 基于：
      * - 时间正弦波（模拟卫星轨道变化）
      * - 当前速度（开阔地增加，城市峡谷减少）
+     * - 尊重用户配置的最低卫星数 minSatellites
      */
     @Synchronized
     fun updateSatelliteCount(): Int {
@@ -298,7 +299,9 @@ object FakeLoc {
             spd < 10.0 -> baseCount -= 1
         }
     
-        cachedSatCount = baseCount.coerceIn(MIN_SATELLITES, MAX_SATELLITES)
+        // 应用用户配置的最低卫星数（确保不低于 minSatellites）
+        val minAllowed = if (minSatellites in 1..MAX_SATELLITES) minSatellites else DEFAULT_MIN_SATELLITES
+        cachedSatCount = baseCount.coerceIn(minAllowed, MAX_SATELLITES)
         return cachedSatCount
     }
 }
