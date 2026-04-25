@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.IBinder
 import android.os.Parcel
+import android.location.Location   // 新增导入
+import android.os.SystemClock      // 新增导入
 import moe.fuqiuluo.dobby.Dobby
 import moe.fuqiuluo.xposed.hooks.LocationServiceHook
 import moe.fuqiuluo.xposed.utils.FakeLoc
@@ -182,9 +184,16 @@ object RemoteCommandHandler {
                 FakeLoc.bearing = bearing
                 FakeLoc.hasBearings = true
                 FakeLoc.syncConfigToFile()
-                return updateCoordinate(newLoc.first, newLoc.second).also {
+                // 修复时间戳冻结：更新坐标时刷新 lastLocation 的时间
+                val success = updateCoordinate(newLoc.first, newLoc.second).also {
                     if (FakeLoc.isSystemServerProcess) LocationServiceHook.callOnLocationChanged()
                 }
+                // 额外确保 lastLocation 的时间戳为当前时间（防止 updateCoordinate 中因 lastLocation 为空而未刷新）
+                FakeLoc.lastLocation?.apply {
+                    time = System.currentTimeMillis()
+                    elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+                }
+                return success
             }
             "update_location" -> {
                 val mode = rely.getString("mode")
@@ -360,6 +369,20 @@ object RemoteCommandHandler {
         if (newLat in -90.0..90.0 && newLon in -180.0..180.0) {
             FakeLoc.latitude = newLat
             FakeLoc.longitude = newLon
+            // 修复时间戳冻结：更新坐标时刷新 lastLocation 的时间戳
+            FakeLoc.lastLocation?.let {
+                it.time = System.currentTimeMillis()
+                it.elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+            } ?: run {
+                // 如果 lastLocation 为空，创建一个新的 Location 对象，并设置当前时间
+                val newLoc = Location("gps").apply {
+                    latitude = newLat
+                    longitude = newLon
+                    time = System.currentTimeMillis()
+                    elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+                }
+                FakeLoc.lastLocation = newLoc
+            }
             return true
         } else {
             Logger.error("Invalid latitude or longitude: $newLat, $newLon")

@@ -4,6 +4,7 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock   // 新增导入
 import de.robv.android.xposed.XposedHelpers
 import moe.fuqiuluo.xposed.utils.FakeLoc
 import moe.fuqiuluo.xposed.utils.Logger
@@ -21,6 +22,11 @@ abstract class BaseLocationHook: BaseDivineService() {
                 }
             ) {
                 FakeLoc.lastLocation = originLocation
+                // 修复时间戳冻结：更新 lastLocation 的时间为当前系统时间
+                FakeLoc.lastLocation?.apply {
+                    time = System.currentTimeMillis()
+                    elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+                }
             }
         } else {
             originLocation.altitude = FakeLoc.altitude
@@ -126,6 +132,11 @@ abstract class BaseLocationHook: BaseDivineService() {
         }.onFailure {
             Logger.error("makeComplete failed", it)
         }
+    
+        // ========== 修复时间戳冻结：强制将时间改为当前系统时间 ==========
+        location.time = System.currentTimeMillis()
+        location.elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+        // =============================================================
     
         if (FakeLoc.enableDebugLog) {
             Logger.debug("injectLocation success! $location")

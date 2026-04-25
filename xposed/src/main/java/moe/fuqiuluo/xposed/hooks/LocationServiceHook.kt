@@ -10,6 +10,7 @@ import android.os.DeadObjectException
 import android.os.IBinder
 import android.os.IInterface
 import android.os.Parcel
+import android.os.SystemClock  // 新增导入
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
@@ -961,10 +962,10 @@ internal object LocationServiceHook: BaseLocationHook() {
             val listener = listenerWithProvider.second
             var location = FakeLoc.lastLocation
             if (location == null) {
-                location = if (listenerWithProvider.first == "GnssBatch") {
-                    Location("gps")
-                } else {
-                    Location(listenerWithProvider.first)
+                location = Location(listenerWithProvider.first).apply {
+                    // 修复时间戳冻结：新建位置时强制设置当前系统时间
+                    time = System.currentTimeMillis()
+                    elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
                 }
             }
             location = injectLocation(location)
