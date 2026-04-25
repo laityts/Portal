@@ -1,5 +1,5 @@
 // 文件名: FakeLoc.kt
-// 优化抖动算法，减少瞬移幅度，增加自然漂移
+// 修复平滑卫星数量生成器不生效的问题：使卫星数在 minSatellites 到 MAX_SATELLITES 之间动态变化
 package moe.fuqiuluo.xposed.utils
 
 import android.location.Location
@@ -276,8 +276,7 @@ object FakeLoc {
         }
     }
 
-    // ==================== 平滑卫星数量生成器 ====================
-    private const val DEFAULT_MIN_SATELLITES = 4
+    // ==================== 平滑卫星数量生成器（修复版本） ====================
     private const val MAX_SATELLITES = 35
     
     private var lastSatCountUpdateTime = 0L
@@ -286,9 +285,12 @@ object FakeLoc {
     /**
      * 获取当前模拟的可见卫星数量（平滑模型）
      * 基于：
-     * - 时间正弦波（模拟卫星轨道变化）
+     * - 时间正弦波（模拟卫星轨道变化），在 minSatellites 到 MAX_SATELLITES 之间波动
      * - 当前速度（开阔地增加，城市峡谷减少）
      * - 尊重用户配置的最低卫星数 minSatellites
+     *
+     * 修复：不再只是将低值钳位到 minSatellites，而是让平均值围绕 minSatellites 上方波动，
+     *       确保卫星数量在 minSatellites ~ MAX_SATELLITES 范围内动态变化。
      */
     @Synchronized
     fun updateSatelliteCount(): Int {
@@ -298,23 +300,30 @@ object FakeLoc {
             return cachedSatCount
         }
         lastSatCountUpdateTime = now
-    
-        // 正弦波周期 60 秒，振幅 10，基线 12 -> 范围 2~22
+
+        // 确定动态范围：最小值 = minSatellites，最大值 = MAX_SATELLITES
+        val minAllowed = minSatellites.coerceIn(1, MAX_SATELLITES)
+        val range = MAX_SATELLITES - minAllowed
+        // 正弦波周期 60 秒，相位 0..2π
         val angle = (now % 60000) / 60000.0 * 2 * Math.PI
-        val sinVal = (Math.sin(angle) + 1) / 2  // 0..1
-        var baseCount = 8 + (sinVal * 20).toInt()  // 8..28
-    
+        val sinVal = (Math.sin(angle) + 1) / 2  // 0..1，平滑波动
+        // 基础卫星数在 minAllowed 到 max 之间随正弦变化
+        var baseCount = minAllowed + (sinVal * range).toInt()
+
         // 根据当前速度调整（速度越快越可能开阔）
         val spd = speed
         when {
             spd > 30.0 -> baseCount += 4
             spd > 15.0 -> baseCount += 2
-            spd < 5.0  -> baseCount -= 3
+            spd < 5.0  -> baseCount -= 2
             spd < 10.0 -> baseCount -= 1
         }
-    
-        // 应用用户配置的最低卫星数（确保不低于 minSatellites）
-        val minAllowed = if (minSatellites in 1..MAX_SATELLITES) minSatellites else DEFAULT_MIN_SATELLITES
+
+        // 添加微小随机波动（±1~2颗），使每次查询都有细微差异
+        val randomDelta = Random.nextInt(-2, 3)  // -2..2
+        baseCount += randomDelta
+
+        // 最终限制在允许范围内
         cachedSatCount = baseCount.coerceIn(minAllowed, MAX_SATELLITES)
         return cachedSatCount
     }
