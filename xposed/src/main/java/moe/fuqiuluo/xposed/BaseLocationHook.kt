@@ -25,37 +25,43 @@ abstract class BaseLocationHook: BaseDivineService() {
         } else {
             originLocation.altitude = FakeLoc.altitude
         }
-
+    
         if (!FakeLoc.enable)
             return originLocation
-
+    
         if (originLocation.latitude + originLocation.longitude == FakeLoc.latitude + FakeLoc.longitude) {
             // Already processed
             return originLocation
         }
-
+    
         if (FakeLoc.disableNetworkLocation && originLocation.provider == LocationManager.NETWORK_PROVIDER) {
             originLocation.provider = LocationManager.GPS_PROVIDER
         }
-
+    
         val location = Location(originLocation.provider ?: LocationManager.GPS_PROVIDER)
         location.accuracy = if (FakeLoc.accuracy != 0.0f) FakeLoc.accuracy else originLocation.accuracy
         val jitterLat = FakeLoc.jitterLocation()
         location.latitude = jitterLat.first
         location.longitude = jitterLat.second
         location.altitude = FakeLoc.altitude
+        // ========== 速度模拟（使用配置速度 + 随机抖动） ==========
+        // 原代码使用 originLocation.speed，导致速度异常大，现改为基于 FakeLoc.speed
         val speedAmp = Random.nextDouble(-FakeLoc.speedAmplitude, FakeLoc.speedAmplitude)
-        location.speed = (originLocation.speed + speedAmp).toFloat()
+        var newSpeed = FakeLoc.speed + speedAmp
+        if (newSpeed < 0) newSpeed = 0.0
+        location.speed = newSpeed.toFloat()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && originLocation.hasSpeedAccuracy()) {
+            // 速度精度同样使用配置速度 + 振幅（可根据需要调整）
             location.speedAccuracyMetersPerSecond = (FakeLoc.speed + speedAmp).toFloat()
         }
-
+        // ======================================================
+    
         if (location.altitude == 0.0) {
             location.altitude = 80.0
         }
-
+    
         location.time = originLocation.time
-
+    
         // final addition of zero is to remove -0 results. while these are technically within the
         // range [0, 360) according to IEEE semantics, this eliminates possible user confusion.
         var modBearing = FakeLoc.bearing % 360.0 + 0.0
@@ -71,11 +77,11 @@ abstract class BaseLocationHook: BaseDivineService() {
                 location.bearingAccuracyDegrees = 1.0f
             }
         }
-
+    
         if (location.speed == 0.0f) {
             location.speed = 1.2f
         }
-
+    
         location.elapsedRealtimeNanos = originLocation.elapsedRealtimeNanos
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             location.elapsedRealtimeUncertaintyNanos = originLocation.elapsedRealtimeUncertaintyNanos
@@ -90,10 +96,11 @@ abstract class BaseLocationHook: BaseDivineService() {
             location.extras = Bundle()
         }
         location.extras?.putDouble("latlon", location.latitude + location.longitude)
+        // 使用平滑卫星数量生成器，替代原来的 Random.nextInt(8, 45)
         location.extras?.putInt("satellites", FakeLoc.updateSatelliteCount())
         location.extras?.putInt("maxCn0", Random.nextInt(30, 50))
         location.extras?.putInt("meanCn0", Random.nextInt(20, 30))
-
+    
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             if (originLocation.hasMslAltitude()) {
                 location.mslAltitudeMeters = FakeLoc.altitude
@@ -113,17 +120,17 @@ abstract class BaseLocationHook: BaseDivineService() {
             location.extras?.putBoolean("portal.enable", true)
             location.extras?.putBoolean("is_mock", true)
         }
-
+    
         kotlin.runCatching {
             XposedHelpers.callMethod(location, "makeComplete")
         }.onFailure {
             Logger.error("makeComplete failed", it)
         }
-
+    
         if (FakeLoc.enableDebugLog) {
             Logger.debug("injectLocation success! $location")
         }
-
+    
         return location
     }
 
