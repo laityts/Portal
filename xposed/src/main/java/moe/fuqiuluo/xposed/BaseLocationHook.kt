@@ -1,5 +1,5 @@
 // 文件名: BaseLocationHook.kt
-// 修复坐标跳跃距离过大、速度波动剧烈的问题，并解决 Kotlin 智能转换编译错误
+// 移除坐标跳跃距离限制，仅保留自然抖动和速度平滑
 package moe.fuqiuluo.xposed
 
 import android.location.Location
@@ -12,8 +12,7 @@ import moe.fuqiuluo.xposed.utils.FakeLoc
 import moe.fuqiuluo.xposed.utils.Logger
 import moe.microbios.nmea.NMEA
 import moe.microbios.nmea.NmeaValue
-import kotlin.math.abs
-import kotlin.math.min
+import kotlin.math.sin
 import kotlin.random.Random
 
 abstract class BaseLocationHook: BaseDivineService() {
@@ -22,12 +21,6 @@ abstract class BaseLocationHook: BaseDivineService() {
         private var lastFilteredSpeed = FakeLoc.speed
         private var lastSpeedUpdateTime = 0L
         private const val SPEED_ALPHA = 0.6f  // 滤波系数，越接近1响应越快，越小越平滑
-        
-        // 上一次注入的位置和时间，用于限制单步移动距离
-        @Volatile
-        private var lastInjectedLocation: Location? = null
-        @Volatile
-        private var lastInjectedTime = 0L
     }
 
     fun injectLocation(originLocation: Location, realLocation: Boolean = true): Location {
@@ -64,44 +57,11 @@ abstract class BaseLocationHook: BaseDivineService() {
         val location = Location(originLocation.provider ?: LocationManager.GPS_PROVIDER)
         location.accuracy = if (FakeLoc.accuracy != 0.0f) FakeLoc.accuracy else originLocation.accuracy
         
-        // ========== 修复坐标过于平滑：使用增强的抖动函数，并增加移动距离限制 ==========
-        // 获取抖动后的坐标（基于理想位置）
+        // ========== 修复坐标过于平滑：使用增强的抖动函数 ==========
+        // 获取抖动后的坐标（基于理想位置），不再限制单步移动距离
         val jittered = FakeLoc.jitterLocation(lat = FakeLoc.latitude, lon = FakeLoc.longitude, angle = FakeLoc.bearing)
-        var newLat = jittered.first
-        var newLon = jittered.second
-        
-        // ---- 新增：限制单步最大移动距离（防止瞬移）- 修复智能转换编译错误 ----
-        val now = System.currentTimeMillis()
-        // 复制可变成员到局部变量，避免智能转换问题
-        val lastLoc = lastInjectedLocation
-        val lastTime = lastInjectedTime
-        if (lastLoc != null && lastTime > 0) {
-            val deltaTimeSec = (now - lastTime) / 1000.0
-            if (deltaTimeSec > 0 && deltaTimeSec < 5.0) {  // 5秒内的移动才限制
-                // 计算允许的最大移动距离（基于当前速度 + 最大加速度）
-                val maxSpeedMps = FakeLoc.speed + 5.0  // 最大允许速度比当前速度高5m/s (约18km/h)
-                val maxDistanceMeters = maxSpeedMps * deltaTimeSec
-                // 计算实际移动距离
-                val actualDistance = FakeLoc.haversine(lastLoc.latitude, lastLoc.longitude, newLat, newLon)
-                if (actualDistance > maxDistanceMeters && maxDistanceMeters > 0) {
-                    // 按比例缩小移动距离到最大允许值
-                    val ratio = maxDistanceMeters / actualDistance
-                    val deltaLat = newLat - lastLoc.latitude
-                    val deltaLon = newLon - lastLoc.longitude
-                    newLat = lastLoc.latitude + deltaLat * ratio
-                    newLon = lastLoc.longitude + deltaLon * ratio
-                    if (FakeLoc.enableDebugLog) {
-                        Logger.debug("Movement limited: requested ${actualDistance}m, limited to ${maxDistanceMeters}m")
-                    }
-                }
-            }
-        }
-        // 更新记录
-        lastInjectedLocation = Location("gps").apply {
-            latitude = newLat
-            longitude = newLon
-        }
-        lastInjectedTime = now
+        val newLat = jittered.first
+        val newLon = jittered.second
         // ===============================================================
         
         location.latitude = newLat
@@ -123,7 +83,7 @@ abstract class BaseLocationHook: BaseDivineService() {
         lastSpeedUpdateTime = nowTime
         var newSpeed = lastFilteredSpeed
         // 额外添加基于正弦波的微小波动，模拟自然加速度变化（周期约30秒）
-        val cycle = Math.sin(nowTime / 30000.0 * Math.PI) * FakeLoc.speedAmplitude * 0.2
+        val cycle = sin(nowTime / 30000.0 * Math.PI) * FakeLoc.speedAmplitude * 0.2
         newSpeed += cycle
         if (newSpeed < 0) newSpeed = 0.0
         location.speed = newSpeed.toFloat()
