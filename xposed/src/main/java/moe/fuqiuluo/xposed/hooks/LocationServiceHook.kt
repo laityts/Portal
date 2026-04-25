@@ -10,7 +10,7 @@ import android.os.DeadObjectException
 import android.os.IBinder
 import android.os.IInterface
 import android.os.Parcel
-import android.os.SystemClock  // 新增导入
+import android.os.SystemClock
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
@@ -452,6 +452,7 @@ internal object LocationServiceHook: BaseLocationHook() {
             }
         })
 
+        // 修复：动态查找并 hook GnssStatusCallback 相关方法，避免 find onSvStatusChanged failed
         if(XposedBridge.hookAllMethods(cILocationManager, "registerGnssStatusCallback", object: XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam?) {
                     if(param == null || param.args.isEmpty() || param.args[0] == null) return
@@ -466,23 +467,19 @@ internal object LocationServiceHook: BaseLocationHook() {
                         return
                     }
 
-                    if (cIGnssStatusListener.onceHookAllMethod("onSvStatusChanged", beforeHook {
-                        // android 7.0.0
-                        // void onSvStatusChanged(int svCount, in int[] svidWithFlags, in float[] cn0s,
-                        //            in float[] elevations, in float[] azimuths);
-                        // android 8.0.0
-                        // void onSvStatusChanged(int svCount, in int[] svidWithFlags, in float[] cn0s,
-                        //            in float[] elevations, in float[] azimuths,
-                        //            in float[] carrierFreqs);
-                        // android 11
-                        //  void onSvStatusChanged(int svCount, in int[] svidWithFlags, in float[] cn0s,
-                        //            in float[] elevations, in float[] azimuths,
-                        //            in float[] carrierFreqs, in float[] basebandCn0s);
-                        // android 12 ~ 15
-                        // void onSvStatusChanged(in GnssStatus gnssStatus);
+                    // 动态查找 onSvStatusChanged 或 onGnssStatusChanged 方法（兼容不同版本）
+                    val targetMethod = cIGnssStatusListener.declaredMethods.firstOrNull { method ->
+                        method.name.equals("onSvStatusChanged", ignoreCase = true) ||
+                        method.name.equals("onGnssStatusChanged", ignoreCase = true)
+                    }
 
-                        // https://www.csno-tarc.cn/system/constellation
+                    if (targetMethod == null) {
+                        Logger.error("Failed to find onSvStatusChanged or onGnssStatusChanged method in ${cIGnssStatusListener.name}")
+                        return
+                    }
 
+                    if (!targetMethod.isAccessible) targetMethod.isAccessible = true
+                    XposedBridge.hookMethod(targetMethod, beforeHook {
                         if (!FakeLoc.enableMockGnss) return@beforeHook
 
                         // 修复：限制卫星数量范围，避免越界
@@ -509,14 +506,12 @@ internal object LocationServiceHook: BaseLocationHook() {
 
                                 var flags = GnssFlags.SVID_FLAGS_NONE
 
-                                // 设置基本标志位
                                 if (hasEphemeris) flags = flags or GnssFlags.SVID_FLAGS_HAS_EPHEMERIS_DATA
                                 if (hasAlmanac) flags = flags or GnssFlags.SVID_FLAGS_HAS_ALMANAC_DATA
                                 if (usedInFix) flags = flags or GnssFlags.SVID_FLAGS_USED_IN_FIX
                                 if (hasCarrierFreq) flags = flags or GnssFlags.SVID_FLAGS_HAS_CARRIER_FREQUENCY
                                 if (hasBasebandCn0) flags = flags or GnssFlags.SVID_FLAGS_HAS_BASEBAND_CN0
 
-                                // 组合SVID、星座类型和标志位
                                 svidWithFlags[index] = (sat.prn shl GnssFlags.SVID_SHIFT_WIDTH) or
                                         ((GnssFlags.CONSTELLATION_BEIDOU and GnssFlags.CONSTELLATION_TYPE_MASK) shl GnssFlags.CONSTELLATION_TYPE_SHIFT_WIDTH) or
                                         flags
@@ -536,64 +531,61 @@ internal object LocationServiceHook: BaseLocationHook() {
                             }
                         }
 
-                        if (args[0] is Int) {
-                            args[0] = svCount
-                            args[1] = mockGps.svidWithFlags
-                            args[2] = mockGps.cn0s
-                            args[3] = mockGps.elevations
-                            args[4] = mockGps.azimuths
-                            if (args.size > 5) {
-                                args[5] = mockGps.carrierFreqs
+                        // 根据方法参数数量动态适配
+                        val parameterTypes = targetMethod.parameterTypes
+                        when {
+                            // 新版 GnssStatus 对象参数
+                            parameterTypes.size == 1 && parameterTypes[0].name == "android.location.GnssStatus" -> {
+                                runCatching {
+                                    val mConstructor = parameterTypes[0].declaredConstructors.firstOrNull {
+                                        it.parameterTypes.size == 7
+                                    }.also {
+                                        it?.isAccessible = true
+                                    }
+                                    if (mConstructor != null) {
+                                        args[0] = mConstructor.newInstance(
+                                            svCount,
+                                            mockGps.svidWithFlags,
+                                            mockGps.cn0s,
+                                            mockGps.elevations,
+                                            mockGps.azimuths,
+                                            mockGps.carrierFreqs,
+                                            FloatArray(svCount) {
+                                                mockGps.cn0s[it] - Random.nextFloat(2f, 5f)
+                                            }
+                                        )
+                                    } else {
+                                        Logger.error("onSvStatusChanged: unsupported version, constructor not found")
+                                    }
+                                }.onFailure {
+                                    XposedBridge.log(it)
+                                }
                             }
-
-                            if (args.size > 6) {
-                                args[6] = FloatArray(svCount) {
+                            // 旧版多参数版本
+                            parameterTypes.size >= 5 -> {
+                                args[0] = svCount
+                                args[1] = mockGps.svidWithFlags
+                                args[2] = mockGps.cn0s
+                                args[3] = mockGps.elevations
+                                args[4] = mockGps.azimuths
+                                if (args.size > 5) args[5] = mockGps.carrierFreqs
+                                if (args.size > 6) args[6] = FloatArray(svCount) {
                                     mockGps.cn0s[it] - Random.nextFloat(2f, 5f)
                                 }
                             }
-                            return@beforeHook
-                        }
-
-                        if (args[0] != null && args[0].javaClass.name == "android.location.GnssStatus") {
-                            runCatching {
-                                val mConstructor = args[0].javaClass.declaredConstructors.firstOrNull {
-                                    it.parameterTypes.size == 7
-                                }.also {
-                                    it?.isAccessible = true
-                                }
-
-                                if (mConstructor != null) {
-                                    args[0] = mConstructor.newInstance(
-                                        svCount,
-                                        mockGps.svidWithFlags,
-                                        mockGps.cn0s,
-                                        mockGps.elevations,
-                                        mockGps.azimuths,
-                                        mockGps.carrierFreqs,
-                                        FloatArray(svCount) {
-                                            mockGps.cn0s[it] - Random.nextFloat(2f, 5f)
-                                        }
-                                    )
-                                } else {
-                                    Logger.error("onSvStatusChanged: unsupported version: ${method}, constructor not found")
-                                }
-                            }.onFailure {
-                                XposedBridge.log(it)
+                            else -> {
+                                Logger.error("onSvStatusChanged: unsupported method signature: ${parameterTypes.joinToString { it.name }}")
                             }
-                            return@beforeHook
                         }
-
-                        Logger.error("onSvStatusChanged: unsupported version: $method")
-                    }).isEmpty()) {
-                        Logger.error("find onSvStatusChanged failed!")
-                    }
-
-                    cIGnssStatusListener.onceHookAllMethod("onNmeaReceived", beforeHook {
-                        if (FakeLoc.enableDebugLog) {
-                            Logger.debug("onNmeaReceived")
-                        }
-                        if (FakeLoc.enableMockGnss) result = null
                     })
+
+                    // 同样处理 onNmeaReceived
+                    val nmeaMethod = cIGnssStatusListener.declaredMethods.firstOrNull { it.name == "onNmeaReceived" }
+                    nmeaMethod?.let {
+                        XposedBridge.hookMethod(it, beforeHook {
+                            if (FakeLoc.enableMockGnss) result = null
+                        })
+                    }
                 }
             }).isEmpty()) {
             XposedBridge.log("[Portal] hook registerGnssStatusCallback failed")
