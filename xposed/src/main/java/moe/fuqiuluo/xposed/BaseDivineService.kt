@@ -75,7 +75,10 @@ abstract class BaseDivineService {
                     if (FakeLoc.enableDebugLog) {
                         Logger.debug("ProxyBinder($from): $bundle")
                     }
-                    if(!RemoteCommandHandler.handleInstruction(randomKey, bundle)) {
+                    // 客户端进程的 RemoteCommandHandler.randomKey 与 system_server 独立，
+                    // 必须跳过本地 randomKey 校验，put_config 等命令才能在客户端进程生效。
+                    val commandId = bundle.getString("command_id")
+                    if (commandId == null || !RemoteCommandHandler.dispatchCommand(commandId, bundle)) {
                         Logger.error("Failed to handle instruction in $from")
                     }
                     return true

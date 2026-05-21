@@ -18,7 +18,6 @@ object RemoteCommandHandler {
     internal val randomKey by lazy { "portal_" + Random.nextDouble() }
     private var isLoadedLibrary = false
 
-    @SuppressLint("UnsafeDynamicallyLoadedCode")
     fun handleInstruction(command: String, rely: Bundle): Boolean {
         // Exchange key -> returns a random key -> is used to verify that it is the PortalManager
         if (command == "exchange_key") {
@@ -49,6 +48,15 @@ object RemoteCommandHandler {
             Logger.error("Failed to transact with proxyBinder", it)
         }
 
+        return dispatchCommand(commandId, rely)
+    }
+
+    /**
+     * 处理已经通过认证（randomKey 校验或 proxyBinder 反向调用）的指令分发。
+     * proxyBinder 注册路径受 randomKey 保护，反向调用方为 system_server，链路本身受信任。
+     */
+    @SuppressLint("UnsafeDynamicallyLoadedCode")
+    internal fun dispatchCommand(commandId: String, rely: Bundle): Boolean {
         if (FakeLoc.enableDebugLog) {
             Logger.debug("commandId=$commandId, rely=$rely")
         }
