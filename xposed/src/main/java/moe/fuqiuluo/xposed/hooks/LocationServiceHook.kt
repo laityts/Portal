@@ -156,6 +156,8 @@ data class MockGnssData(
 
 internal object LocationServiceHook: BaseLocationHook() {
     val locationListeners = LinkedBlockingQueue<Pair<String, IInterface>>()
+    private val isServiceHooked = AtomicBoolean(false)
+    private val hookedListenerClasses = java.util.Collections.synchronizedSet(HashSet<String>())
 
     // A random command is generated to prevent some apps from detecting Portal
     operator fun invoke(classLoader: ClassLoader) {
@@ -169,8 +171,9 @@ internal object LocationServiceHook: BaseLocationHook() {
     }
 
     fun onService(cILocationManager: Class<*>) {
-        // Got instance of ILocationManager.Stub here, you can hook it
-        // Not directly Class.forName because of this thing, it can't be reflected, even if I'm system_server?!?!
+        if (!isServiceHooked.compareAndSet(false, true)) {
+            return
+        }
 
         if (FakeLoc.enableDebugLog) {
             Logger.debug("ILocationManager.Stub: class = $cILocationManager")
@@ -823,6 +826,10 @@ internal object LocationServiceHook: BaseLocationHook() {
 
     private fun hookILocationListener(listener: Any) {
         val classListener = listener.javaClass
+        if (!hookedListenerClasses.add(classListener.name)) {
+            return
+        }
+
         if (FakeLoc.enableDebugLog)
             Logger.debug("will hook ILocationListener: ${classListener.name}")
 
