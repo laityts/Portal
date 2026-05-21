@@ -103,12 +103,12 @@ object FakeLoc {
 
     @Volatile var speed = 3.05
 
-    var speedAmplitude = 1.0
+    @Volatile var speedAmplitude = 1.0
 
     @Volatile var hasBearings = false
 
-    var bearing = 0.0
-        get() {
+    @Volatile var bearing = 0.0
+        @Synchronized get() {
             if (hasBearings) {
                 return field
             } else {
@@ -119,8 +119,9 @@ object FakeLoc {
                 return field
             }
         }
+        @Synchronized set
 
-    var accuracy = 25.0f
+    @Volatile var accuracy = 25.0f
         set(value) {
             field = if (value < 0) {
                 -value
