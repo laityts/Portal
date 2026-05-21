@@ -45,9 +45,9 @@ abstract class BaseLocationHook: BaseDivineService() {
         location.longitude = jitterLat.second
         location.altitude = FakeLoc.altitude
         val speedAmp = Random.nextDouble(-FakeLoc.speedAmplitude, FakeLoc.speedAmplitude)
-        location.speed = (originLocation.speed + speedAmp).toFloat()
+        location.speed = (FakeLoc.speed + speedAmp).toFloat()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && originLocation.hasSpeedAccuracy()) {
-            location.speedAccuracyMetersPerSecond = (FakeLoc.speed + speedAmp).toFloat()
+            location.speedAccuracyMetersPerSecond = FakeLoc.speedAmplitude.toFloat()
         }
 
         if (location.altitude == 0.0) {
@@ -68,8 +68,8 @@ abstract class BaseLocationHook: BaseDivineService() {
                 originLocation.bearingAccuracyDegrees else 10.0f
         }
 
-        if (location.speed == 0.0f) {
-            location.speed = 1.2f
+        if (location.speed <= 0.0f) {
+            location.speed = FakeLoc.speed.toFloat()
         }
 
         location.elapsedRealtimeNanos = originLocation.elapsedRealtimeNanos
