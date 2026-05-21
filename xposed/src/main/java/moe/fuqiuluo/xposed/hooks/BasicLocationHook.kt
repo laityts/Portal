@@ -81,9 +81,7 @@ object BasicLocationHook: BaseLocationHook() {
                 if (modBearing < 0) {
                     modBearing += 360.0
                 }
-                if (location.hasBearing()) {
-                    location.bearing = modBearing.toFloat()
-                }
+                location.bearing = modBearing.toFloat()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     location.bearingAccuracyDegrees = if (originLocation.hasBearingAccuracy() && originLocation.bearingAccuracyDegrees > 0)
                         originLocation.bearingAccuracyDegrees else 10.0f
