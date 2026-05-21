@@ -193,11 +193,11 @@ object RemoteCommandHandler {
                         return updateCoordinate(newLat, newLon)
                     }
                     "/" -> {
-                        if (newLat == 0.0 || newLon == 0.0) {
+                        if (FakeLoc.latitude == 0.0 || FakeLoc.longitude == 0.0) {
                             return false
                         }
-                        newLat /= FakeLoc.latitude
-                        newLon /= FakeLoc.longitude
+                        newLat = FakeLoc.latitude / newLat
+                        newLon = FakeLoc.longitude / newLon
                         return updateCoordinate(newLat, newLon)
                     }
                     "=" -> {
