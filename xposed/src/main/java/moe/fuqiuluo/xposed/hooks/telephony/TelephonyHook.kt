@@ -179,8 +179,8 @@ object TelephonyHook: BaseTelephonyHook() {
                         Int.MAX_VALUE,
                         Int.MAX_VALUE,
                         Int.MAX_VALUE,
-                        (FakeLoc.latitude * 14400.0).toInt(),
                         (FakeLoc.longitude * 14400.0).toInt(),
+                        (FakeLoc.latitude * 14400.0).toInt(),
                         null, null
                     )
                 }
