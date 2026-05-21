@@ -85,7 +85,8 @@ object BasicLocationHook: BaseLocationHook() {
                     location.bearing = modBearing.toFloat()
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    location.bearingAccuracyDegrees = modBearing.toFloat()
+                    location.bearingAccuracyDegrees = if (originLocation.hasBearingAccuracy() && originLocation.bearingAccuracyDegrees > 0)
+                        originLocation.bearingAccuracyDegrees else 10.0f
                 }
                 location.elapsedRealtimeNanos = originLocation.elapsedRealtimeNanos
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
