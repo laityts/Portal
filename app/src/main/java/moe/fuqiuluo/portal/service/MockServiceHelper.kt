@@ -419,9 +419,11 @@ object MockServiceHelper {
             if (soFile.exists()) {
                 val originalHash = ShellUtils.executeCommandToBytes("head -c 4096 ${soFile.absolutePath}")
                 val newHash = ShellUtils.executeCommandToBytes("head -c 4096 ${tmpSoFile.absolutePath}")
-                if (originalHash.contentEquals(newHash)) {
+                if (!originalHash.contentEquals(newHash)) {
                     ShellUtils.executeCommand("rm ${soFile.absolutePath}")
                     ShellUtils.executeCommand("mv ${tmpSoFile.absolutePath} ${soFile.absolutePath}")
+                } else {
+                    ShellUtils.executeCommand("rm ${tmpSoFile.absolutePath}")
                 }
             } else if (tmpSoFile.exists()) {
                 ShellUtils.executeCommand("mv ${tmpSoFile.absolutePath} ${soFile.absolutePath}")
