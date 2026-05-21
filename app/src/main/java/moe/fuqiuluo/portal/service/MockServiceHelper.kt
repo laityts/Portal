@@ -432,7 +432,7 @@ object MockServiceHelper {
             Log.w("MockServiceHelper", "Failed to copy portal library", it)
         }
 
-        ShellUtils.executeCommand("chmod 777 ${soFile.absolutePath}")
+        ShellUtils.executeCommand("chmod 755 ${soFile.absolutePath}")
 
         val result = loadLibrary(context.getSystemService(Context.LOCATION_SERVICE) as LocationManager, soFile.absolutePath)
 
