@@ -64,12 +64,8 @@ abstract class BaseLocationHook: BaseDivineService() {
         }
         location.bearing = modBearing.toFloat()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            location.bearingAccuracyDegrees = modBearing.toFloat()
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (location.hasBearingAccuracy() && location.bearingAccuracyDegrees == 0.0f) {
-                location.bearingAccuracyDegrees = 1.0f
-            }
+            location.bearingAccuracyDegrees = if (originLocation.hasBearingAccuracy() && originLocation.bearingAccuracyDegrees > 0)
+                originLocation.bearingAccuracyDegrees else 10.0f
         }
 
         if (location.speed == 0.0f) {
