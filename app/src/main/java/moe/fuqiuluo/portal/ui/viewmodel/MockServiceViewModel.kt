@@ -156,9 +156,9 @@ class MockServiceViewModel : ViewModel() {
                     }
 
                     Log.d("MockServiceViewModel", "从 $currentLat, $currentLon 移动到 ${target.first}, ${target.second}, 方位角: $azimuth")
-                    // 方向通过 set_bearing 下发（move 只管走/停），位移由系统侧心跳推进
+                    // 方向通过 set_bearing 下发（move 只管走/停，不读 bearing），位移由系统侧心跳推进
                     MockServiceHelper.setBearing(locationManager!!, azimuth)
-                    if (!MockServiceHelper.move(locationManager!!, 1.0, azimuth)) {
+                    if (!MockServiceHelper.move(locationManager!!, 1.0, 0.0)) {
                         Log.e("MockServiceViewModel", "移动失败")
                     }
                 } while (isActive)
