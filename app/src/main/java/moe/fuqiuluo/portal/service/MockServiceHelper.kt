@@ -261,6 +261,12 @@ object MockServiceHelper {
         return null
     }
 
+    /**
+     * 下发运动目标到系统侧 MotionState。
+     * @param distance >0 表示移动（目标速度取系统侧巡航速度），0 表示停止。
+     * @param bearing 兼容旧 IPC 协议保留，系统侧 move 已不再使用它（方向由 set_bearing 独立下发）。
+     * 实际位移由系统侧心跳按 dt 推进，本调用不再直接搬运坐标。
+     */
     fun move(locationManager: LocationManager, distance: Double, bearing: Double): Boolean {
         if (!::randomKey.isInitialized) {
             return false

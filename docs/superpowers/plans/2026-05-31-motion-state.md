@@ -538,27 +538,26 @@ git commit -m "refactor(xposed): FakeLoc 坐标/速度/航向委托 MotionState�
             }
 ```
 
-替换为（distance>0 → 设目标速度=FakeLoc.speed + 目标航向；distance==0 → 停止。不再搬坐标、不再主动广播，位移交给心跳）：
+替换为（distance>0 → 只设目标速度=巡航速度；distance==0 → 停止。move 不再设 bearing，方向由 set_bearing 独立负责；不再搬坐标、不再主动广播，位移交给心跳）：
 
 ```kotlin
             "move" -> {
                 val distance = rely.getDouble("n", 0.0)
-                val bearing = rely.getDouble("bearing", 0.0)
                 if (FakeLoc.enableDebugLog) {
-                    Logger.debug("move: distance=$distance, bearing=$bearing (设目标，位移交心跳)")
+                    Logger.debug("move: distance=$distance (设速度目标，方向由 set_bearing 负责，位移交心跳)")
                 }
                 if (distance == 0.0) {
-                    // 松摇杆/到点：目标速度归零，心跳平滑减速到静止
-                    MotionState.setTarget(speed = 0.0, bearing = bearing)
+                    // 松摇杆/到点/停止：目标速度归零，心跳平滑减速到静止
+                    MotionState.setTarget(speed = 0.0)
                 } else {
                     // 目标速度取巡航速度（由 start/set_speed/put_config 经 FakeLoc.speed 设置），不反推 dt
-                    MotionState.setTarget(speed = MotionState.cruiseSpeed, bearing = bearing)
+                    MotionState.setTarget(speed = MotionState.cruiseSpeed)
                 }
                 return true
             }
 ```
 
-注意：`move` 的目标速度取"用户设定的巡航速度"，而非"当前快照速度"。需要在 MotionState 单独保存巡航速度——见 Step 1b。**关键设计：`start`/`put_config` 在启用时会写 `FakeLoc.speed = speed`，绝不能让它立刻设成 targetSpeed（否则一启用就自动朝北漂移）。因此 `FakeLoc.speed` 的语义统一为"配置巡航速度"，只有 `move` 命令才把巡航速度提升为运动目标。**
+注意：`move` 只设速度目标，**不碰 bearing**——方向是独立的一条路径（`set_bearing` IPC）。这是因为 app 进程与 system_server 是独立进程、各有一份 MotionState，app 进程读 `FakeLoc.bearing` 恒为 0（snapshot 不被心跳 tick）；若 move 携带 app 侧 bearing 会用 0 覆盖掉 set_bearing 刚送进系统的正确方向。`MotionState.setTarget` 的 bearing 参数有默认值（保持当前 targetBearing 不变），故只传 speed 即可。
 
 - [ ] **Step 1b: MotionState 增加巡航速度字段，并修正 FakeLoc.speed 委托目标**
 
@@ -1036,34 +1035,25 @@ git commit -m "feat(xposed): GNSS 卫星集合会话稳定，方位/仰角随时
             }
 ```
 
-替换为（仅下发"目标速度+航向"，distance 字段沿用 move 协议但语义已是"非0即移动"；不再每 tick 计算位移）：
+替换为（摇杆激活时持续下发"移动"目标；方向由 onAngle 的 set_bearing IPC 负责，move 不再携带 bearing；位移由系统侧心跳推进）：
 
 ```kotlin
             rockerJob = GlobalScope.launch {
-                var lastBearing = Double.NaN
-                var lastMoving = false
                 do {
                     rockerCoroutineController.controlledCoroutine()
                     delay(delayTime)
 
                     CrashReport.setUserSceneTag(applicationContext, 261773)
-                    val moving = FakeLoc.speed > 0.0
-                    val bearing = FakeLoc.bearing
-                    // 仅在航向或运动状态变化时下发目标，避免无谓 IPC
-                    if (moving != lastMoving || bearing != lastBearing) {
-                        // distance 传 1.0 表示"移动"、0.0 表示"停止"，系统侧据此设目标速度
-                        val distance = if (moving) 1.0 else 0.0
-                        if (!MockServiceHelper.move(locationManager!!, distance, bearing)) {
-                            Log.e("MockServiceViewModel", "Failed to set move target")
-                        }
-                        lastMoving = moving
-                        lastBearing = bearing
+                    // 摇杆激活时持续下发"移动"目标（distance=1.0 表示走）；
+                    // 方向由 onAngle 的 set_bearing IPC 负责，位移由系统侧心跳按 dt 推进
+                    if (!MockServiceHelper.move(locationManager!!, 1.0, 0.0)) {
+                        Log.e("MockServiceViewModel", "Failed to set walk target")
                     }
                 } while (isActive)
             }
 ```
 
-注意：`FakeLoc.bearing`/`FakeLoc.speed` 在 app 进程读的是 app 侧 FakeLoc 静态值（摇杆写入），与系统侧 MotionState 无关，仍可正常读取。
+**关键（跨进程修正）：** app 进程与 system_server 是独立进程，各有一份 MotionState，心跳只在系统进程跑。因此 app 进程读 `FakeLoc.bearing` 恒为 0（其 snapshot 不被 tick）。摇杆方向必须、且已经通过 `onAngle` 里的 `MockServiceHelper.setBearing(angle)` IPC 直达系统进程，**不能**再让 move 携带 app 侧的 bearing 去覆盖它。move 只负责走/停。
 
 - [ ] **Step 2: 路线模拟改为下发段目标（修改约 99-170 行）**
 
@@ -1080,16 +1070,44 @@ git commit -m "feat(xposed): GNSS 卫星集合会话稳定，方位/仰角随时
                     }
 ```
 
-替换为：
+替换为（move 只管走/停，方向改用 set_bearing 下发）：
 
 ```kotlin
-                    // 下发目标航向 + 移动，位移由系统侧心跳推进
+                    // 方向通过 set_bearing 下发（move 只管走/停），位移由系统侧心跳推进
+                    MockServiceHelper.setBearing(locationManager!!, azimuth)
                     if (!MockServiceHelper.move(locationManager!!, 1.0, azimuth)) {
                         Log.e("MockServiceViewModel", "移动失败")
                     }
 ```
 
 到点判定阈值 `inverse.s12 < 1.0`（精确到点）与 `inverse.s12 < FakeLoc.speed/(1000/delayTime)/0.85`（跨段）保持不变——它们读 `getLocation` 的系统侧快照，随心跳推进会自然减小。
+
+**路线终点停止（原计划遗漏）：** 路线走完时循环 `break`，但系统侧 targetSpeed 仍是 cruiseSpeed，心跳会让位置继续漂。在 `if (routeStage >= route.size) { ... }` 块内、`break` 之前补一行下发停止：
+
+```kotlin
+                    if (routeStage >= route.size) {
+                        routeMockCoroutine.pause()
+                        rocker.autoStatus = false
+                        routeStage = 0
+                        MockServiceHelper.move(locationManager!!, 0.0, 0.0) // 终点停止：目标速度归零
+                        break // 退出循环
+                    }
+```
+
+- [ ] **Step 2b: 摇杆松手即停（原计划遗漏，改 2 个 Fragment）**
+
+`MockFragment.kt`（约 126 行）和 `RouteMockFragment.kt`（约 117 行）的摇杆 `onFinished` 回调，松手且未锁定时只 `pause()` 了循环，但系统侧 targetSpeed 仍为 cruiseSpeed，心跳会让位置一直漂。在两处的 `onFinished` 内补发停止：
+
+```kotlin
+                override fun onFinished() {
+                    if (!isRockerLocked) {
+                        rockerCoroutineController.pause()
+                        MockServiceHelper.move(locationManager!!, 0.0, 0.0) // 松手停止：目标速度归零，心跳平滑减速
+                    }
+                }
+```
+
+（两个 Fragment 都已 import `MockServiceHelper` 和持有 `locationManager`，无需新增 import）
 
 - [ ] **Step 3: MockServiceHelper.move 注释更新（约 264-276 行）**
 

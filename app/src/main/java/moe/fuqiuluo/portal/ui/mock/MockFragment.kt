@@ -126,6 +126,7 @@ class MockFragment : Fragment() {
                 override fun onFinished() {
                     if (!isRockerLocked) {
                         rockerCoroutineController.pause()
+                        MockServiceHelper.move(locationManager!!, 0.0, 0.0) // 松手停止：目标速度归零，心跳平滑减速
                     }
                 }
 

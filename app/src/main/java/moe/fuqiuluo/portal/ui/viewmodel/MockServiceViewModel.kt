@@ -61,15 +61,11 @@ class MockServiceViewModel : ViewModel() {
                     delay(delayTime)
 
                     CrashReport.setUserSceneTag(applicationContext, 261773)
-                    if(!MockServiceHelper.move(locationManager!!, FakeLoc.speed / (1000 / delayTime) / 0.85, FakeLoc.bearing)) {
-                        Log.e("MockServiceViewModel", "Failed to move")
+                    // 摇杆激活时持续下发"移动"目标（distance=1.0 表示走）；
+                    // 方向由 onAngle 的 set_bearing IPC 负责，位移由系统侧心跳按 dt 推进
+                    if (!MockServiceHelper.move(locationManager!!, 1.0, 0.0)) {
+                        Log.e("MockServiceViewModel", "Failed to set walk target")
                     }
-
-//                    if (MockServiceHelper.broadcastLocation(locationManager!!)) {
-//                        Log.d("MockServiceViewModel", "Broadcast location")
-//                    } else {
-//                        Log.e("MockServiceViewModel", "Failed to broadcast location")
-//                    }
                 } while (isActive)
             }
         }
@@ -138,6 +134,7 @@ class MockServiceViewModel : ViewModel() {
                         rocker.autoStatus = false
                         // 重设阶段
                         routeStage = 0
+                        MockServiceHelper.move(locationManager!!, 0.0, 0.0) // 终点停止：目标速度归零
                         break // 退出循环
                     }
 
@@ -159,12 +156,9 @@ class MockServiceViewModel : ViewModel() {
                     }
 
                     Log.d("MockServiceViewModel", "从 $currentLat, $currentLon 移动到 ${target.first}, ${target.second}, 方位角: $azimuth")
-                    if (!MockServiceHelper.move(
-                            locationManager!!,
-                            FakeLoc.speed / (1000 / delayTime) / 0.85,
-                            azimuth
-                        )
-                    ) {
+                    // 方向通过 set_bearing 下发（move 只管走/停），位移由系统侧心跳推进
+                    MockServiceHelper.setBearing(locationManager!!, azimuth)
+                    if (!MockServiceHelper.move(locationManager!!, 1.0, azimuth)) {
                         Log.e("MockServiceViewModel", "移动失败")
                     }
                 } while (isActive)
