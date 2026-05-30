@@ -34,12 +34,20 @@ object MotionState {
         private set
 
     fun setCruiseSpeed(speed: Double) {
-        synchronized(lock) { cruiseSpeed = speed }
+        synchronized(lock) {
+            if (FakeLoc.enableDebugLog) {
+                Logger.debug("MotionState.setCruiseSpeed: $cruiseSpeed → $speed")
+            }
+            cruiseSpeed = speed
+        }
     }
 
     /** 设置运动目标（move/set_speed/set_bearing 调用）。 */
     fun setTarget(speed: Double = targetSpeed, bearing: Double = targetBearing) {
         synchronized(lock) {
+            if (FakeLoc.enableDebugLog) {
+                Logger.debug("MotionState.setTarget: speed=$targetSpeed→$speed, bearing=$targetBearing→$bearing")
+            }
             targetSpeed = speed
             targetBearing = bearing
         }
@@ -48,6 +56,9 @@ object MotionState {
     /** 瞬移：硬重置锚点并清零速度（update_location 调用）。 */
     fun teleport(latitude: Double, longitude: Double, altitude: Double = snapshot.altitude, accuracy: Float = snapshot.accuracy) {
         synchronized(lock) {
+            if (FakeLoc.enableDebugLog) {
+                Logger.debug("MotionState.teleport: (${snapshot.latitude},${snapshot.longitude}) → ($latitude,$longitude), alt=$altitude")
+            }
             targetSpeed = 0.0
             snapshot = snapshot.copy(
                 latitude = latitude, longitude = longitude, altitude = altitude,
@@ -60,6 +71,9 @@ object MotionState {
     /** 停止：清零目标与当前速度，保持锚点（stop 调用）。 */
     fun stop() {
         synchronized(lock) {
+            if (FakeLoc.enableDebugLog) {
+                Logger.debug("MotionState.stop: speed=${snapshot.speed}→0, targetSpeed=$targetSpeed→0")
+            }
             targetSpeed = 0.0
             snapshot = snapshot.copy(speed = 0.0, elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos())
         }
@@ -68,6 +82,9 @@ object MotionState {
     /** 更新精度/海拔等不参与积分的字段。 */
     fun updateMeta(altitude: Double = snapshot.altitude, accuracy: Float = snapshot.accuracy) {
         synchronized(lock) {
+            if (FakeLoc.enableDebugLog) {
+                Logger.debug("MotionState.updateMeta: alt=${snapshot.altitude}→$altitude, acc=${snapshot.accuracy}→$accuracy")
+            }
             snapshot = snapshot.copy(altitude = altitude, accuracy = accuracy)
         }
     }
@@ -77,8 +94,9 @@ object MotionState {
         synchronized(lock) {
             val dtSeconds = (nowNanos - snapshot.elapsedRealtimeNanos) / 1e9
             if (dtSeconds <= 0.0) return
+            val prev = snapshot
             val next = MotionKinematics.step(
-                current = snapshot,
+                current = prev,
                 targetSpeed = targetSpeed,
                 targetBearing = targetBearing,
                 dtSeconds = dtSeconds,
@@ -86,6 +104,12 @@ object MotionState {
                 randomGaussian = { random.nextGaussian() },
             )
             snapshot = next.copy(elapsedRealtimeNanos = nowNanos)
+            if (FakeLoc.enableDebugLog && (targetSpeed > 0.0 || next.speed > 0.01)) {
+                Logger.debug("MotionState.tick: dt=%.3fs, speed=%.2f→%.2f(target=%.2f), bearing=%.1f→%.1f(target=%.1f), pos=(%.6f,%.6f)".format(
+                    dtSeconds, prev.speed, next.speed, targetSpeed,
+                    prev.bearing, next.bearing, targetBearing, next.latitude, next.longitude
+                ))
+            }
         }
     }
 }

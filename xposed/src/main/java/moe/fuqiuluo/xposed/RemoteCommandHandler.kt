@@ -84,9 +84,15 @@ object RemoteCommandHandler {
                 FakeLoc.altitude = altitude
                 FakeLoc.accuracy = accuracy
 
+                if (FakeLoc.enableDebugLog) {
+                    Logger.debug("start: speed=$speed, altitude=$altitude, accuracy=$accuracy, cruiseSpeed=${MotionState.cruiseSpeed}")
+                }
                 return true
             }
             "stop" -> {
+                if (FakeLoc.enableDebugLog) {
+                    Logger.debug("stop: 清零运动状态")
+                }
                 FakeLoc.enable = false
                 FakeLoc.hasBearings = false
                 MotionState.stop()
@@ -157,11 +163,17 @@ object RemoteCommandHandler {
             }
             "set_speed" -> {
                 val speed = rely.getDouble("speed", 0.0)
+                if (FakeLoc.enableDebugLog) {
+                    Logger.debug("set_speed: $speed (cruiseSpeed: ${MotionState.cruiseSpeed} → $speed)")
+                }
                 FakeLoc.speed = speed
                 return true
             }
             "set_bearing" -> {
                 val bearing = rely.getDouble("bearing", 0.0)
+                if (FakeLoc.enableDebugLog) {
+                    Logger.debug("set_bearing: bearing=$bearing (当前快照bearing=${MotionState.snapshot.bearing})")
+                }
                 MotionState.setTarget(bearing = bearing)
                 FakeLoc.hasBearings = true
                 return true
@@ -169,7 +181,8 @@ object RemoteCommandHandler {
             "move" -> {
                 val distance = rely.getDouble("n", 0.0)
                 if (FakeLoc.enableDebugLog) {
-                    Logger.debug("move: distance=$distance (设速度目标，方向由 set_bearing 负责，位移交心跳)")
+                    val action = if (distance == 0.0) "停止" else "走(cruiseSpeed=${MotionState.cruiseSpeed})"
+                    Logger.debug("move: distance=$distance → $action, 当前speed=${MotionState.snapshot.speed}, bearing=${MotionState.snapshot.bearing}")
                 }
                 if (distance == 0.0) {
                     // 松摇杆/到点/停止：目标速度归零，心跳平滑减速到静止
