@@ -778,16 +778,20 @@ git commit -m "feat(xposed): 复活 startDaemon 心跳线程，按真实 dt 推�
         location.speed = (FakeLoc.speed + speedAmp).toFloat()
 ```
 
-替换为（一次性取快照，坐标用快照锚点叠加抖动游走，speed/bearing 直接取快照）：
+替换为（一次性取快照，坐标=快照锚点叠加 OU 相关随机游走偏移，speed/bearing 直接取快照）：
 
 ```kotlin
         val snap = MotionState.snapshot
         val location = Location(originLocation.provider ?: LocationManager.GPS_PROVIDER)
         location.accuracy = if (FakeLoc.accuracy != 0.0f) FakeLoc.accuracy else originLocation.accuracy
-        // 抖动叠加在快照锚点上：jitterState 已是相关随机游走结果（米）
-        val jitterLat = FakeLoc.jitterLocation(lat = snap.latitude, lon = snap.longitude, n = kotlin.math.abs(snap.jitterState), angle = snap.bearing)
-        location.latitude = jitterLat.first
-        location.longitude = jitterLat.second
+        // 抖动：snap.jitterState 是 OU 相关随机游走的带符号位移（米），帧间连续。
+        // 不复用 FakeLoc.jitterLocation（它有 /15 缩放和每帧 ±45° 独立随机，正是要替换的旧模型）。
+        // 沿垂直于航向方向（bearing+90，随航向缓变而非每帧随机）叠加偏移，保持帧间相关。
+        val earthRadius = 6371000.0
+        val driftDeg = snap.jitterState / earthRadius * (180.0 / Math.PI)
+        val driftAngle = Math.toRadians(snap.bearing + 90.0)
+        location.latitude = snap.latitude + driftDeg * Math.cos(driftAngle)
+        location.longitude = snap.longitude + driftDeg * Math.sin(driftAngle) / Math.cos(Math.toRadians(snap.latitude))
         location.altitude = FakeLoc.altitude
         location.speed = snap.speed.toFloat()
 ```
@@ -830,17 +834,20 @@ git commit -m "feat(xposed): 复活 startDaemon 心跳线程，按真实 dt 推�
         val snap = MotionState.snapshot
 ```
 
-然后把方法内所有 `FakeLoc.latitude` → `snap.latitude`，`FakeLoc.longitude` → `snap.longitude`。RMC 分支额外设置速度与航向（若 NmeaValue.RMC 暴露这些字段；查 nmea 模块 RMC 定义，存在则赋值，不存在则跳过并在计划注记）：
+然后把方法内所有 `FakeLoc.latitude` → `snap.latitude`，`FakeLoc.longitude` → `snap.longitude`（GGA/GNS/RMC 三个分支都有这些引用，逐一替换）。
+
+**RMC 分支额外同步速度与航向**：经核对 `nmea` 模块 `NmeaValue.RMC`（`nmea/src/main/java/moe/microbios/nmea/NmeaValue.kt:144`），其速度字段是 `speedKnots: Double?`、航向字段是 `trackAngle: Double?`，**两者都是 `val`（不可重新赋值）**。因此不能原地写，必须用 data class 的 `copy()` 生成带速度/航向的新对象再输出。RMC 分支末尾的 `return value.toNmeaString()` 改为：
 
 ```kotlin
-                is NmeaValue.RMC -> {
-                    // ...现有经纬度赋值改为 snap.latitude/snap.longitude...
-                    // 速度(节)与航向取自同一快照，与 Location 自洽
-                    // value.speedKnots = snap.speed * 1.943844  // 若字段存在
-                    // value.course = snap.bearing               // 若字段存在
-                    return value.toNmeaString()
-                }
+                    // 速度(节,1 m/s≈1.943844 节)与航向取自同一快照，与 Location 对象逐字段自洽
+                    val rmc = value.copy(
+                        speedKnots = snap.speed * 1.943844,
+                        trackAngle = snap.bearing,
+                    )
+                    return rmc.toNmeaString()
 ```
+
+注意：RMC 分支内对 `value.latitude`/`value.longitude`/`value.latitudeHemisphere`/`value.longitudeHemisphere` 的赋值（这些是 `var`，可原地改）保持不变，它们在 `copy()` 之前执行，`copy()` 会带上这些已更新的经纬度（copy 默认复制当前字段值）。GGA、GNS 分支不涉及速度/航向，仅替换经纬度引用，`return value.toNmeaString()` 保持不变。
 
 - [ ] **Step 5: 添加 import**
 
