@@ -97,37 +97,41 @@ object FakeLoc {
      * 上一次的位置
      */
     @Volatile var lastLocation: Location? = null
-    @Volatile var latitude = 0.0
-    @Volatile var longitude = 0.0
-    @Volatile var altitude = 80.0
 
-    @Volatile var speed = 3.05
+    // 坐标/速度/航向的唯一真相源是 MotionState.snapshot。
+    // 这些属性保留是为兼容旧调用点（读快照、写转交 MotionState）。
+    var latitude: Double
+        get() = MotionState.snapshot.latitude
+        set(value) { MotionState.teleport(value, MotionState.snapshot.longitude) }
+    var longitude: Double
+        get() = MotionState.snapshot.longitude
+        set(value) { MotionState.teleport(MotionState.snapshot.latitude, value) }
+
+    @Volatile var altitude = 80.0
+        set(value) {
+            field = value
+            MotionState.updateMeta(altitude = value)
+        }
+
+    /** 目标速度（m/s）。读返回当前快照地速，写设为运动目标。 */
+    var speed: Double
+        get() = MotionState.snapshot.speed
+        set(value) { MotionState.setTarget(speed = value) }
 
     @Volatile var speedAmplitude = 1.0
 
+    // 保留字段以兼容旧引用；航向真相源已是 MotionState，副作用自增已移除。
     @Volatile var hasBearings = false
 
-    @Volatile var bearing = 0.0
-        @Synchronized get() {
-            if (hasBearings) {
-                return field
-            } else {
-                if (field >= 360.0) {
-                    field -= 360.0
-                }
-                field += 0.5
-                return field
-            }
-        }
-        @Synchronized set
+    /** 航向（度）。读返回当前快照航向，写设为缓转目标。 */
+    var bearing: Double
+        get() = MotionState.snapshot.bearing
+        set(value) { MotionState.setTarget(bearing = value) }
 
     @Volatile var accuracy = 25.0f
         set(value) {
-            field = if (value < 0) {
-                -value
-            } else {
-                value
-            }
+            field = if (value < 0) -value else value
+            MotionState.updateMeta(accuracy = field)
         }
 
     fun haversine(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
