@@ -134,14 +134,18 @@ class Rocker(private val activity: Activity) : View.OnTouchListener {
     }
     
     fun show() {
+        if (isStart) return
         windowManager.addView(root, layoutParams)
         isStart = true
     }
 
     fun hide() {
+        if (!isStart) return
         val rockerView = root.findViewById<RockerView>(R.id.rocker)
         rockerView.reset()
-        windowManager.removeView(root)
+        try {
+            windowManager.removeView(root)
+        } catch (_: Exception) { }
         isStart = false
     }
 
