@@ -131,6 +131,9 @@ class RouteMockFragment : Fragment() {
                         routeMockCoroutine.resume()
                     } else {
                         routeMockCoroutine.pause()
+                        // 暂停时停止系统侧运动，否则心跳会沿最后方向持续直行
+                        MockServiceHelper.move(locationManager!!, 0.0, 0.0)
+                        mockServiceViewModel.lastRouteAzimuth = Double.NaN
                     }
                 }
 
