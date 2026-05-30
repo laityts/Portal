@@ -7,6 +7,7 @@ import android.os.Parcel
 import moe.fuqiuluo.dobby.Dobby
 import moe.fuqiuluo.xposed.hooks.LocationServiceHook
 import moe.fuqiuluo.xposed.utils.FakeLoc
+import moe.fuqiuluo.xposed.utils.MotionState
 import moe.fuqiuluo.xposed.utils.BinderUtils
 import moe.fuqiuluo.xposed.utils.Logger
 import java.util.Collections
@@ -88,6 +89,7 @@ object RemoteCommandHandler {
             "stop" -> {
                 FakeLoc.enable = false
                 FakeLoc.hasBearings = false
+                MotionState.stop()
                 if (isLoadedLibrary) {
                     Dobby.setStatus(false)
                 }
@@ -159,26 +161,25 @@ object RemoteCommandHandler {
             }
             "set_bearing" -> {
                 val bearing = rely.getDouble("bearing", 0.0)
-                FakeLoc.bearing = bearing
+                MotionState.setTarget(bearing = bearing)
                 FakeLoc.hasBearings = true
                 return true
             }
             "move" -> {
                 val distance = rely.getDouble("n", 0.0)
-                if (distance == 0.0) return true
                 val bearing = rely.getDouble("bearing", 0.0)
-                val newLoc = FakeLoc.moveLocation(
-                    n = distance,
-                    angle = bearing
-                )
                 if (FakeLoc.enableDebugLog) {
-                    Logger.debug("move: distance=$distance, bearing=$bearing, newLoc=$newLoc")
+                    Logger.debug("move: distance=$distance, bearing=$bearing (设目标，位移交心跳)")
                 }
-                FakeLoc.bearing = bearing
+                if (distance == 0.0) {
+                    // 松摇杆/到点：目标速度归零，心跳平滑减速到静止
+                    MotionState.setTarget(speed = 0.0, bearing = bearing)
+                } else {
+                    // 目标速度取巡航速度（由 start/set_speed/put_config 经 FakeLoc.speed 设置），不反推 dt
+                    MotionState.setTarget(speed = MotionState.cruiseSpeed, bearing = bearing)
+                }
                 FakeLoc.hasBearings = true
-                return updateCoordinate(newLoc.first, newLoc.second).also {
-                    if (FakeLoc.isSystemServerProcess) LocationServiceHook.callOnLocationChanged()
-                }
+                return true
             }
             "update_location" -> {
                 val mode = rely.getString("mode")
@@ -327,8 +328,7 @@ object RemoteCommandHandler {
 
     private fun updateCoordinate(newLat: Double, newLon: Double): Boolean {
         if (newLat in -90.0..90.0 && newLon in -180.0..180.0) {
-            FakeLoc.latitude = newLat
-            FakeLoc.longitude = newLon
+            MotionState.teleport(newLat, newLon)
             return true
         } else {
             Logger.error("Invalid latitude or longitude: $newLat, $newLon")

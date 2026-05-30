@@ -113,10 +113,10 @@ object FakeLoc {
             MotionState.updateMeta(altitude = value)
         }
 
-    /** 目标速度（m/s）。读返回当前快照地速，写设为运动目标。 */
+    /** 巡航速度（m/s）：用户设定的目标速度。读返回设定值，写更新巡航速度（不直接驱动运动，move 命令才提升为运动目标）。 */
     var speed: Double
-        get() = MotionState.snapshot.speed
-        set(value) { MotionState.setTarget(speed = value) }
+        get() = MotionState.cruiseSpeed
+        set(value) { MotionState.setCruiseSpeed(value) }
 
     @Volatile var speedAmplitude = 1.0
 
