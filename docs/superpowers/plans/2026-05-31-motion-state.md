@@ -157,9 +157,9 @@ class MotionKinematicsTest {
         // 静止下连续推进，抖动状态不应发散（高斯输入恒为 1.0 时趋于均衡）
         var snap = base(speed = 0.0)
         repeat(1000) {
-            snap = MotionKinematics.step(snap, targetSpeed = 0.0, targetBearing = 0.0, dtSeconds = 0.1, params = params, randomGaussian = { 1.0 })
+            snap = MotionKinematics.step(snap, targetSpeed = 0.0, targetBearing = 0.0, dtSeconds = 1.0, params = params, randomGaussian = { 1.0 })
         }
-        // 均衡值 = volatility/reversion 量级，远小于发散
+        // OU 离散不动点 j* = volatility*sqrt(dt) / (reversion*dt) = 0.5/0.3 ≈ 1.667（dt=1.0），远小于发散
         assertTrue("jitterState 不应发散: ${snap.jitterState}", abs(snap.jitterState) < 5.0)
     }
 
