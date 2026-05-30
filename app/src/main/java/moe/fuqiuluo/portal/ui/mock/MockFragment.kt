@@ -114,9 +114,9 @@ class MockFragment : Fragment() {
 
             rocker.setRockerListener(object: RockerView.Companion.OnMoveListener {
                 override fun onAngle(angle: Double) {
+                    // 方向只走 set_bearing IPC（系统侧据此置 targetBearing 与 hasBearings）；
+                    // app 进程的 FakeLoc.bearing 无人读取（心跳/注入仅在系统进程），故不再写
                     MockServiceHelper.setBearing(locationManager!!, angle)
-                    FakeLoc.bearing = angle
-                    FakeLoc.hasBearings = true
                 }
 
                 override fun onLockChanged(isLocked: Boolean) {
@@ -126,6 +126,7 @@ class MockFragment : Fragment() {
                 override fun onFinished() {
                     if (!isRockerLocked) {
                         rockerCoroutineController.pause()
+                        MockServiceHelper.move(locationManager!!, 0.0, 0.0) // 松手停止：目标速度归零，心跳平滑减速
                     }
                 }
 

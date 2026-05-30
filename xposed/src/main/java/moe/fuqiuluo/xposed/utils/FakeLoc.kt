@@ -97,37 +97,46 @@ object FakeLoc {
      * 上一次的位置
      */
     @Volatile var lastLocation: Location? = null
-    @Volatile var latitude = 0.0
-    @Volatile var longitude = 0.0
-    @Volatile var altitude = 80.0
 
-    @Volatile var speed = 3.05
+    // 坐标/速度/航向的唯一真相源是 MotionState.snapshot。
+    // 这些属性保留是为兼容旧调用点（读快照、写转交 MotionState）。
+    var latitude: Double
+        get() = MotionState.snapshot.latitude
+        set(value) { MotionState.teleport(value, MotionState.snapshot.longitude) }
+    var longitude: Double
+        get() = MotionState.snapshot.longitude
+        set(value) { MotionState.teleport(MotionState.snapshot.latitude, value) }
+
+    @Volatile var altitude = 80.0
+        set(value) {
+            field = value
+            MotionState.updateMeta(altitude = value)
+        }
+
+    /** 巡航速度（m/s）：用户设定的目标速度。读返回设定值，写更新巡航速度（不直接驱动运动，move 命令才提升为运动目标）。 */
+    var speed: Double
+        get() = MotionState.cruiseSpeed
+        set(value) { MotionState.setCruiseSpeed(value) }
 
     @Volatile var speedAmplitude = 1.0
 
+    /**
+     * 系统侧心跳周期（毫秒）。MotionState 每隔此时长推进一步并广播。
+     */
+    @Volatile var reportInterval: Long = 1000L
+
+    // 保留字段以兼容旧引用；航向真相源已是 MotionState，副作用自增已移除。
     @Volatile var hasBearings = false
 
-    @Volatile var bearing = 0.0
-        @Synchronized get() {
-            if (hasBearings) {
-                return field
-            } else {
-                if (field >= 360.0) {
-                    field -= 360.0
-                }
-                field += 0.5
-                return field
-            }
-        }
-        @Synchronized set
+    /** 航向（度）。读返回当前快照航向，写设为缓转目标。 */
+    var bearing: Double
+        get() = MotionState.snapshot.bearing
+        set(value) { MotionState.setTarget(bearing = value) }
 
     @Volatile var accuracy = 25.0f
         set(value) {
-            field = if (value < 0) {
-                -value
-            } else {
-                value
-            }
+            field = if (value < 0) -value else value
+            MotionState.updateMeta(accuracy = field)
         }
 
     fun haversine(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {

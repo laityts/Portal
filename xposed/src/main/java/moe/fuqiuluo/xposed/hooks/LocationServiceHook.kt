@@ -32,6 +32,8 @@ import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
+import moe.fuqiuluo.xposed.utils.MotionState
+import kotlin.concurrent.thread
 import kotlin.random.Random
 import kotlin.uuid.ExperimentalUuidApi
 
@@ -159,6 +161,65 @@ internal object LocationServiceHook: BaseLocationHook() {
     private val isServiceHooked = AtomicBoolean(false)
     private val hookedListenerClasses = java.util.Collections.synchronizedSet(HashSet<String>())
 
+    // GNSS 会话级缓存：卫星集合在一次定位会话内稳定，方位/仰角随时间小步演进
+    private data class SvState(
+        val sat: BDSSatellite,
+        var cn0: Float,
+        var elevation: Float,
+        var azimuth: Float,
+        val usedInFix: Boolean,
+        val hasEphemeris: Boolean,
+        val hasAlmanac: Boolean,
+        val carrierFreq: Float,
+    )
+    @Volatile private var svSession: List<SvState>? = null
+    @Volatile private var svSessionCount: Int = 0
+
+    private fun ensureSvSession(): List<SvState> {
+        svSession?.let { return it }
+        val count = Random.nextInt(FakeLoc.minSatellites, MAX_SATELLITES + 1)
+        val accuracy = MotionState.snapshot.accuracy
+        // 精度好→用于定位的卫星比例更高
+        val usedRatio = (1.0f - (accuracy / 50f)).coerceIn(0.4f, 0.9f)
+        val session = satelliteList.shuffled().take(count).map { sat ->
+            SvState(
+                sat = sat,
+                cn0 = when (sat.type) {
+                    is OrbitType.GEO -> Random.nextFloat(GEO_MIN_CN0, GEO_MAX_CN0)
+                    is OrbitType.IGSO -> Random.nextFloat(IGSO_MIN_CN0, IGSO_MAX_CN0)
+                    is OrbitType.MEO -> Random.nextFloat(MEO_MIN_CN0, MEO_MAX_CN0)
+                },
+                elevation = Random.nextFloat(sat.type.elevationRange.start, sat.type.elevationRange.endInclusive),
+                azimuth = Random.nextFloat(0f, 360f),
+                usedInFix = Random.nextFloat() < usedRatio,
+                hasEphemeris = Random.nextFloat() > 0.1f,
+                hasAlmanac = Random.nextFloat() > 0.05f,
+                carrierFreq = when (Random.nextInt(3)) {
+                    0 -> BDS_B1I_FREQ; 1 -> BDS_B2I_FREQ; else -> BDS_B3I_FREQ
+                },
+            )
+        }
+        svSession = session
+        svSessionCount = count
+        return session
+    }
+
+    private fun evolveSvSession(session: List<SvState>) {
+        // 方位/仰角随时间小步漂移，相邻帧连续；cn0 小幅波动
+        session.forEach { sv ->
+            sv.azimuth = ((sv.azimuth + Random.nextFloat(-1.5f, 1.5f)) % 360f + 360f) % 360f
+            sv.elevation = (sv.elevation + Random.nextFloat(-0.5f, 0.5f))
+                .coerceIn(sv.sat.type.elevationRange.start, sv.sat.type.elevationRange.endInclusive)
+            sv.cn0 = (sv.cn0 + Random.nextFloat(-0.8f, 0.8f))
+                .coerceIn(sv.sat.type.minCn0, sv.sat.type.maxCn0)
+        }
+    }
+
+    fun resetGnssSession() {
+        svSession = null
+        svSessionCount = 0
+    }
+
     // A random command is generated to prevent some apps from detecting Portal
     operator fun invoke(classLoader: ClassLoader) {
         val cLocationManagerService = XposedHelpers.findClassIfExists("com.android.server.location.LocationManagerService", classLoader)
@@ -167,7 +228,7 @@ internal object LocationServiceHook: BaseLocationHook() {
         } else {
             onService(cLocationManagerService)
         }
-        //startDaemon(classLoader)
+        startDaemon()
     }
 
     fun onService(cILocationManager: Class<*>) {
@@ -485,7 +546,8 @@ internal object LocationServiceHook: BaseLocationHook() {
 
                         if (!FakeLoc.enableMockGnss) return@beforeHook
 
-                        val svCount = Random.nextInt(FakeLoc.minSatellites, MAX_SATELLITES + 1)
+                        val session = ensureSvSession().also { evolveSvSession(it) }
+                        val svCount = session.size
                         val mockGps = MockGnssData(
                             svCount = svCount,
                             svidWithFlags = IntArray(svCount),
@@ -494,43 +556,20 @@ internal object LocationServiceHook: BaseLocationHook() {
                             azimuths = FloatArray(svCount),
                             carrierFreqs = FloatArray(svCount)
                         ).apply {
-                            val selectedSatellites = satelliteList.shuffled().take(svCount)
-
-                            selectedSatellites.forEachIndexed { index, sat ->
-                                svidWithFlags[index] = 0
-
-                                val hasEphemeris = Random.nextFloat() > 0.1f    // 90%概率有星历
-                                val hasAlmanac = Random.nextFloat() > 0.05f     // 95%概率有年历
-                                val usedInFix = Random.nextFloat() > 0.3f       // 70%概率用于定位
-                                val hasCarrierFreq = true                       // 总是有载波频率
-                                val hasBasebandCn0 = true                       // 总是有基带载噪比
-
+                            session.forEachIndexed { index, sv ->
                                 var flags = GnssFlags.SVID_FLAGS_NONE
-
-                                // 设置基本标志位
-                                if (hasEphemeris) flags = flags or GnssFlags.SVID_FLAGS_HAS_EPHEMERIS_DATA
-                                if (hasAlmanac) flags = flags or GnssFlags.SVID_FLAGS_HAS_ALMANAC_DATA
-                                if (usedInFix) flags = flags or GnssFlags.SVID_FLAGS_USED_IN_FIX
-                                if (hasCarrierFreq) flags = flags or GnssFlags.SVID_FLAGS_HAS_CARRIER_FREQUENCY
-                                if (hasBasebandCn0) flags = flags or GnssFlags.SVID_FLAGS_HAS_BASEBAND_CN0
-
-                                // 组合SVID、星座类型和标志位
-                                svidWithFlags[index] = (sat.prn shl GnssFlags.SVID_SHIFT_WIDTH) or
+                                if (sv.hasEphemeris) flags = flags or GnssFlags.SVID_FLAGS_HAS_EPHEMERIS_DATA
+                                if (sv.hasAlmanac) flags = flags or GnssFlags.SVID_FLAGS_HAS_ALMANAC_DATA
+                                if (sv.usedInFix) flags = flags or GnssFlags.SVID_FLAGS_USED_IN_FIX
+                                flags = flags or GnssFlags.SVID_FLAGS_HAS_CARRIER_FREQUENCY
+                                flags = flags or GnssFlags.SVID_FLAGS_HAS_BASEBAND_CN0
+                                svidWithFlags[index] = (sv.sat.prn shl GnssFlags.SVID_SHIFT_WIDTH) or
                                         ((GnssFlags.CONSTELLATION_BEIDOU and GnssFlags.CONSTELLATION_TYPE_MASK) shl GnssFlags.CONSTELLATION_TYPE_SHIFT_WIDTH) or
                                         flags
-
-                                cn0s[index] = when (sat.type) {
-                                    is OrbitType.GEO -> Random.nextFloat(GEO_MIN_CN0, GEO_MAX_CN0)
-                                    is OrbitType.IGSO -> Random.nextFloat(IGSO_MIN_CN0, IGSO_MAX_CN0)
-                                    is OrbitType.MEO -> Random.nextFloat(MEO_MIN_CN0, MEO_MAX_CN0)
-                                }
-                                elevations[index] = Random.nextFloat(sat.type.elevationRange.start, sat.type.elevationRange.endInclusive)
-                                azimuths[index] = Random.nextFloat(0f, 360f)
-                                carrierFreqs[index] = when (Random.nextInt(3)) {
-                                    0 -> BDS_B1I_FREQ
-                                    1 -> BDS_B2I_FREQ
-                                    else -> BDS_B3I_FREQ
-                                }
+                                cn0s[index] = sv.cn0
+                                elevations[index] = sv.elevation
+                                azimuths[index] = sv.azimuth
+                                carrierFreqs[index] = sv.carrierFreq
                             }
                         }
 
@@ -864,34 +903,28 @@ internal object LocationServiceHook: BaseLocationHook() {
         }
     }
 
-//    private fun startDaemon(classLoader: ClassLoader) {
-//        //val cIRemoteCallback = XposedHelpers.findClass("android.os.IRemoteCallback", classLoader)
-//        thread(
-//            name = "LocationUpdater",
-//            isDaemon = true,
-//            start = true,
-//        ) {
-//            while (true) {
-//                kotlin.runCatching {
-//                    if (!FakeLoc.enable) {
-//                        Thread.sleep(3000)
-//                        return@runCatching
-//                    } else {
-//                        Thread.sleep(FakeLoc.updateInterval)
-//                    }
-//
-//                    if (!FakeLoc.enable) return@runCatching // Prevent the last loop from being executed
-//
-//                    if (FakeLoc.enableDebugLog)
-//                        Logger.debug("LocationUpdater: callOnLocationChanged: ${locationListeners.size}")
-//
-//                    callOnLocationChanged()
-//                }.onFailure {
-//                    Logger.error("LocationUpdater", it)
-//                }
-//            }
-//        }
-//    }
+    private val daemonStarted = AtomicBoolean(false)
+
+    private fun startDaemon() {
+        if (!daemonStarted.compareAndSet(false, true)) return
+        thread(name = "PortalMotionDaemon", isDaemon = true, start = true) {
+            while (true) {
+                kotlin.runCatching {
+                    if (!FakeLoc.enable) {
+                        Thread.sleep(3000)
+                        return@runCatching
+                    }
+                    // 推进运动状态一步（真实 dt 由 MotionState 内部用 elapsedRealtimeNanos 计算）
+                    MotionState.tick()
+                    // 主动广播给已注册监听器（静止也持续上报，带真实漂移）
+                    callOnLocationChanged()
+                    Thread.sleep(FakeLoc.reportInterval)
+                }.onFailure {
+                    Logger.error("PortalMotionDaemon", it)
+                }
+            }
+        }
+    }
 
     private fun addLocationListenerInner(provider: String, listener: IInterface) {
         val mDeathRecipient = object: IBinder.DeathRecipient {
