@@ -7,6 +7,7 @@ import android.os.Bundle
 import de.robv.android.xposed.XposedHelpers
 import moe.fuqiuluo.xposed.utils.FakeLoc
 import moe.fuqiuluo.xposed.utils.Logger
+import moe.fuqiuluo.xposed.utils.MotionState
 import moe.microbios.nmea.NMEA
 import moe.microbios.nmea.NmeaValue
 import kotlin.random.Random
@@ -37,14 +38,19 @@ abstract class BaseLocationHook: BaseDivineService() {
             originLocation.provider = LocationManager.GPS_PROVIDER
         }
 
+        val snap = MotionState.snapshot
         val location = Location(originLocation.provider ?: LocationManager.GPS_PROVIDER)
         location.accuracy = if (FakeLoc.accuracy != 0.0f) FakeLoc.accuracy else originLocation.accuracy
-        val jitterLat = FakeLoc.jitterLocation()
-        location.latitude = jitterLat.first
-        location.longitude = jitterLat.second
+        // 抖动：snap.jitterState 是 OU 相关随机游走的带符号位移（米），帧间连续。
+        // 不复用 FakeLoc.jitterLocation（它有 /15 缩放和每帧 ±45° 独立随机，正是要替换的旧模型）。
+        // 沿垂直于航向方向（bearing+90，随航向缓变而非每帧随机）叠加偏移，保持帧间相关。
+        val earthRadius = 6371000.0
+        val driftDeg = snap.jitterState / earthRadius * (180.0 / Math.PI)
+        val driftAngle = Math.toRadians(snap.bearing + 90.0)
+        location.latitude = snap.latitude + driftDeg * Math.cos(driftAngle)
+        location.longitude = snap.longitude + driftDeg * Math.sin(driftAngle) / Math.cos(Math.toRadians(snap.latitude))
         location.altitude = FakeLoc.altitude
-        val speedAmp = Random.nextDouble(-FakeLoc.speedAmplitude, FakeLoc.speedAmplitude)
-        location.speed = (FakeLoc.speed + speedAmp).toFloat()
+        location.speed = snap.speed.toFloat()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && originLocation.hasSpeedAccuracy()) {
             location.speedAccuracyMetersPerSecond = FakeLoc.speedAmplitude.toFloat()
         }
@@ -55,20 +61,10 @@ abstract class BaseLocationHook: BaseDivineService() {
 
         location.time = originLocation.time
 
-        // final addition of zero is to remove -0 results. while these are technically within the
-        // range [0, 360) according to IEEE semantics, this eliminates possible user confusion.
-        var modBearing = FakeLoc.bearing % 360.0 + 0.0
-        if (modBearing < 0) {
-            modBearing += 360.0
-        }
-        location.bearing = modBearing.toFloat()
+        location.bearing = snap.bearing.toFloat()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             location.bearingAccuracyDegrees = if (originLocation.hasBearingAccuracy() && originLocation.bearingAccuracyDegrees > 0)
                 originLocation.bearingAccuracyDegrees else 10.0f
-        }
-
-        if (location.speed <= 0.0f) {
-            location.speed = FakeLoc.speed.toFloat()
         }
 
         location.elapsedRealtimeNanos = originLocation.elapsedRealtimeNanos
@@ -127,6 +123,7 @@ abstract class BaseLocationHook: BaseDivineService() {
             return null
         }
 
+        val snap = MotionState.snapshot
         kotlin.runCatching {
             val nmea = NMEA.valueOf(nmeaStr)
             when(val value = nmea.value) {
@@ -142,18 +139,18 @@ abstract class BaseLocationHook: BaseDivineService() {
                         return null
                     }
 
-                    val latitudeHemisphere = if (FakeLoc.latitude >= 0) "N" else "S"
-                    val longitudeHemisphere = if (FakeLoc.longitude >= 0) "E" else "W"
+                    val latitudeHemisphere = if (snap.latitude >= 0) "N" else "S"
+                    val longitudeHemisphere = if (snap.longitude >= 0) "E" else "W"
 
                     value.latitudeHemisphere = latitudeHemisphere
                     value.longitudeHemisphere = longitudeHemisphere
 
-                    val absLat = kotlin.math.abs(FakeLoc.latitude)
+                    val absLat = kotlin.math.abs(snap.latitude)
                     var degree = absLat.toInt()
                     var minute = (absLat - degree) * 60
                     value.latitude = degree + minute / 100
 
-                    val absLon = kotlin.math.abs(FakeLoc.longitude)
+                    val absLon = kotlin.math.abs(snap.longitude)
                     degree = absLon.toInt()
                     minute = (absLon - degree) * 60
                     value.longitude = degree + minute / 100
@@ -169,18 +166,18 @@ abstract class BaseLocationHook: BaseDivineService() {
                         return null
                     }
 
-                    val latitudeHemisphere = if (FakeLoc.latitude >= 0) "N" else "S"
-                    val longitudeHemisphere = if (FakeLoc.longitude >= 0) "E" else "W"
+                    val latitudeHemisphere = if (snap.latitude >= 0) "N" else "S"
+                    val longitudeHemisphere = if (snap.longitude >= 0) "E" else "W"
 
                     value.latitudeHemisphere = latitudeHemisphere
                     value.longitudeHemisphere = longitudeHemisphere
 
-                    val absLat = kotlin.math.abs(FakeLoc.latitude)
+                    val absLat = kotlin.math.abs(snap.latitude)
                     var degree = absLat.toInt()
                     var minute = (absLat - degree) * 60
                     value.latitude = degree + minute / 100
 
-                    val absLon = kotlin.math.abs(FakeLoc.longitude)
+                    val absLon = kotlin.math.abs(snap.longitude)
                     degree = absLon.toInt()
                     minute = (absLon - degree) * 60
                     value.longitude = degree + minute / 100
@@ -202,23 +199,28 @@ abstract class BaseLocationHook: BaseDivineService() {
                         return null
                     }
 
-                    val latitudeHemisphere = if (FakeLoc.latitude >= 0) "N" else "S"
-                    val longitudeHemisphere = if (FakeLoc.longitude >= 0) "E" else "W"
+                    val latitudeHemisphere = if (snap.latitude >= 0) "N" else "S"
+                    val longitudeHemisphere = if (snap.longitude >= 0) "E" else "W"
 
                     value.latitudeHemisphere = latitudeHemisphere
                     value.longitudeHemisphere = longitudeHemisphere
 
-                    val absLat = kotlin.math.abs(FakeLoc.latitude)
+                    val absLat = kotlin.math.abs(snap.latitude)
                     var degree = absLat.toInt()
                     var minute = (absLat - degree) * 60
                     value.latitude = degree + minute / 100
 
-                    val absLon = kotlin.math.abs(FakeLoc.longitude)
+                    val absLon = kotlin.math.abs(snap.longitude)
                     degree = absLon.toInt()
                     minute = (absLon - degree) * 60
                     value.longitude = degree + minute / 100
 
-                    return value.toNmeaString()
+                    // 速度(节,1 m/s≈1.943844 节)与航向取自同一快照，与 Location 对象逐字段自洽
+                    val rmc = value.copy(
+                        speedKnots = snap.speed * 1.943844,
+                        trackAngle = snap.bearing,
+                    )
+                    return rmc.toNmeaString()
                 }
                 is NmeaValue.VTG -> {
                     return null
