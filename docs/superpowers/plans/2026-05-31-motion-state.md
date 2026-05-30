@@ -551,21 +551,21 @@ git commit -m "refactor(xposed): FakeLoc 坐标/速度/航向委托 MotionState�
                     // 松摇杆/到点：目标速度归零，心跳平滑减速到静止
                     MotionState.setTarget(speed = 0.0, bearing = bearing)
                 } else {
-                    // 目标速度取已同步的 FakeLoc.speed（由 start/set_speed 设置），不反推 dt
-                    MotionState.setTarget(speed = FakeLoc.speed, bearing = bearing)
+                    // 目标速度取巡航速度（由 start/set_speed/put_config 经 FakeLoc.speed 设置），不反推 dt
+                    MotionState.setTarget(speed = MotionState.cruiseSpeed, bearing = bearing)
                 }
                 return true
             }
 ```
 
-注意：`FakeLoc.speed` 的 getter 现在返回快照速度（Task 4），而目标速度需要的是"用户设定的巡航速度"。因此需要在 MotionState 单独保存巡航速度——见 Step 1b。
+注意：`move` 的目标速度取"用户设定的巡航速度"，而非"当前快照速度"。需要在 MotionState 单独保存巡航速度——见 Step 1b。**关键设计：`start`/`put_config` 在启用时会写 `FakeLoc.speed = speed`，绝不能让它立刻设成 targetSpeed（否则一启用就自动朝北漂移）。因此 `FakeLoc.speed` 的语义统一为"配置巡航速度"，只有 `move` 命令才把巡航速度提升为运动目标。**
 
-- [ ] **Step 1b: MotionState 增加巡航速度字段**
+- [ ] **Step 1b: MotionState 增加巡航速度字段，并修正 FakeLoc.speed 委托目标**
 
-`move` 需要"用户设定速度"而非"当前速度"。在 `MotionState`（Task 3 文件）中新增：
+`move` 需要"用户设定速度"而非"当前速度"。在 `MotionState`（Task 3 文件，`object MotionState` 内）中新增：
 
 ```kotlin
-    /** 用户设定的巡航速度（m/s），由 set_speed/start 设置，move 用它作为目标速度。 */
+    /** 用户设定的巡航速度（m/s），由 set_speed/start/put_config 经 FakeLoc.speed 设置；move 用它作为目标速度。 */
     @Volatile
     var cruiseSpeed: Double = 0.0
         private set
@@ -575,16 +575,33 @@ git commit -m "refactor(xposed): FakeLoc 坐标/速度/航向委托 MotionState�
     }
 ```
 
-并把 Step 1 的 `move` 分支里 `MotionState.setTarget(speed = FakeLoc.speed, ...)` 改为 `MotionState.setTarget(speed = MotionState.cruiseSpeed, ...)`。
+然后**修正 Task 4 已提交的 `FakeLoc.speed` setter**：它当前是 `set(value) { MotionState.setTarget(speed = value) }`，会导致 `start` 一启用就开始移动。改为配置巡航速度（读 getter 也相应改为返回巡航速度，保持"读到的就是设定值"的旧语义，供 `get_speed`/`sync_config` 使用）：
 
-- [ ] **Step 2: 改 set_speed / set_bearing 分支（约 155-165 行）**
+打开 `xposed/src/main/java/moe/fuqiuluo/xposed/utils/FakeLoc.kt`，将：
 
 ```kotlin
-            "set_speed" -> {
-                val speed = rely.getDouble("speed", 0.0)
-                MotionState.setCruiseSpeed(speed)
-                return true
-            }
+    /** 目标速度（m/s）。读返回当前快照地速，写设为运动目标。 */
+    var speed: Double
+        get() = MotionState.snapshot.speed
+        set(value) { MotionState.setTarget(speed = value) }
+```
+
+改为：
+
+```kotlin
+    /** 巡航速度（m/s）：用户设定的目标速度。读返回设定值，写更新巡航速度（不直接驱动运动，move 命令才提升为运动目标）。 */
+    var speed: Double
+        get() = MotionState.cruiseSpeed
+        set(value) { MotionState.setCruiseSpeed(value) }
+```
+
+这样 `start`/`put_config`/`set_speed` 里的 `FakeLoc.speed = speed` 全部安全（只配置巡航速度，不触发移动），无需逐处改动它们。
+
+- [ ] **Step 2: set_speed / set_bearing 分支无需改动 move 之外的速度逻辑**
+
+`set_speed` 当前是 `FakeLoc.speed = speed`（约 155-159 行），经 Step 1b 修正后已正确路由到巡航速度，**保持不变**。只改 `set_bearing`（约 160-165 行），把硬写 bearing 改为设缓转目标：
+
+```kotlin
             "set_bearing" -> {
                 val bearing = rely.getDouble("bearing", 0.0)
                 MotionState.setTarget(bearing = bearing)
@@ -593,16 +610,11 @@ git commit -m "refactor(xposed): FakeLoc 坐标/速度/航向委托 MotionState�
             }
 ```
 
-- [ ] **Step 3: 改 start 分支同步巡航速度（约 72-87 行）**
+注意：`set_bearing` 设 `targetBearing` 后，若此时 targetSpeed 为 0（未 move），航向会缓转但不位移——符合预期（转向不等于移动）。
 
-在 `"start"` 分支内，`FakeLoc.speed = speed` 一行之后补一行 `MotionState.setCruiseSpeed(speed)`：
+- [ ] **Step 3: start 分支无需额外改动**
 
-```kotlin
-                FakeLoc.speed = speed
-                MotionState.setCruiseSpeed(speed)
-                FakeLoc.altitude = altitude
-                FakeLoc.accuracy = accuracy
-```
+`start` 分支的 `FakeLoc.speed = speed`（约 82 行）经 Step 1b 修正后已写入巡航速度，**保持原样，不要添加 `MotionState.setCruiseSpeed` 调用**（那会重复）。确认本步骤无代码改动。
 
 - [ ] **Step 4: 改 update_location 为瞬移（约 183-219 行）**
 
