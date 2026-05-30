@@ -30,7 +30,7 @@ object MotionState {
 
     /** 用户设定的巡航速度（m/s），由 set_speed/start/put_config 经 FakeLoc.speed 设置；move 用它作为目标速度。 */
     @Volatile
-    var cruiseSpeed: Double = 0.0
+    var cruiseSpeed: Double = 3.05
         private set
 
     fun setCruiseSpeed(speed: Double) {
