@@ -78,6 +78,7 @@ class MockServiceViewModel : ViewModel() {
             routeMockCoroutine.pause()
             val delayTime = activity.reportDuration.toLong()
             routeMockJob = GlobalScope.launch {
+                var lastAzimuth = Double.NaN
                 do {
                     routeMockCoroutine.routeMockCoroutine()
                     delay(delayTime)
@@ -158,9 +159,22 @@ class MockServiceViewModel : ViewModel() {
                     Log.d("MockServiceViewModel", "从 $currentLat, $currentLon 移动到 ${target.first}, ${target.second}, 方位角: $azimuth")
                     // 方向通过 set_bearing 下发（move 只管走/停，不读 bearing），位移由系统侧心跳推进
                     MockServiceHelper.setBearing(locationManager!!, azimuth)
-                    if (!MockServiceHelper.move(locationManager!!, 1.0, 0.0)) {
-                        Log.e("MockServiceViewModel", "移动失败")
+                    // 急转弯检测：方位角变化 > 30° 时先停让心跳转向，避免位移沿中间方向偏离导致转圈
+                    val bearingDelta = if (lastAzimuth.isNaN()) 0.0 else {
+                        var d = (azimuth - lastAzimuth) % 360.0
+                        if (d > 180.0) d -= 360.0
+                        if (d < -180.0) d += 360.0
+                        kotlin.math.abs(d)
                     }
+                    if (bearingDelta > 30.0) {
+                        // 急转弯：停下让心跳转向，本 tick 不走
+                        MockServiceHelper.move(locationManager!!, 0.0, 0.0)
+                    } else {
+                        if (!MockServiceHelper.move(locationManager!!, 1.0, 0.0)) {
+                            Log.e("MockServiceViewModel", "移动失败")
+                        }
+                    }
+                    lastAzimuth = azimuth
                 } while (isActive)
             }
         }
