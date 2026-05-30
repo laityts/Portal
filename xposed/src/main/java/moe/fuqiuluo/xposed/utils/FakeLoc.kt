@@ -120,6 +120,11 @@ object FakeLoc {
 
     @Volatile var speedAmplitude = 1.0
 
+    /**
+     * 系统侧心跳周期（毫秒）。MotionState 每隔此时长推进一步并广播。
+     */
+    @Volatile var reportInterval: Long = 1000L
+
     // 保留字段以兼容旧引用；航向真相源已是 MotionState，副作用自增已移除。
     @Volatile var hasBearings = false
 

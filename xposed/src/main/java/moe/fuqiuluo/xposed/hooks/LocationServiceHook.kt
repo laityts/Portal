@@ -32,6 +32,8 @@ import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
+import moe.fuqiuluo.xposed.utils.MotionState
+import kotlin.concurrent.thread
 import kotlin.random.Random
 import kotlin.uuid.ExperimentalUuidApi
 
@@ -167,7 +169,7 @@ internal object LocationServiceHook: BaseLocationHook() {
         } else {
             onService(cLocationManagerService)
         }
-        //startDaemon(classLoader)
+        startDaemon()
     }
 
     fun onService(cILocationManager: Class<*>) {
@@ -864,34 +866,28 @@ internal object LocationServiceHook: BaseLocationHook() {
         }
     }
 
-//    private fun startDaemon(classLoader: ClassLoader) {
-//        //val cIRemoteCallback = XposedHelpers.findClass("android.os.IRemoteCallback", classLoader)
-//        thread(
-//            name = "LocationUpdater",
-//            isDaemon = true,
-//            start = true,
-//        ) {
-//            while (true) {
-//                kotlin.runCatching {
-//                    if (!FakeLoc.enable) {
-//                        Thread.sleep(3000)
-//                        return@runCatching
-//                    } else {
-//                        Thread.sleep(FakeLoc.updateInterval)
-//                    }
-//
-//                    if (!FakeLoc.enable) return@runCatching // Prevent the last loop from being executed
-//
-//                    if (FakeLoc.enableDebugLog)
-//                        Logger.debug("LocationUpdater: callOnLocationChanged: ${locationListeners.size}")
-//
-//                    callOnLocationChanged()
-//                }.onFailure {
-//                    Logger.error("LocationUpdater", it)
-//                }
-//            }
-//        }
-//    }
+    private val daemonStarted = AtomicBoolean(false)
+
+    private fun startDaemon() {
+        if (!daemonStarted.compareAndSet(false, true)) return
+        thread(name = "PortalMotionDaemon", isDaemon = true, start = true) {
+            while (true) {
+                kotlin.runCatching {
+                    if (!FakeLoc.enable) {
+                        Thread.sleep(3000)
+                        return@runCatching
+                    }
+                    // 推进运动状态一步（真实 dt 由 MotionState 内部用 elapsedRealtimeNanos 计算）
+                    MotionState.tick()
+                    // 主动广播给已注册监听器（静止也持续上报，带真实漂移）
+                    callOnLocationChanged()
+                    Thread.sleep(FakeLoc.reportInterval)
+                }.onFailure {
+                    Logger.error("PortalMotionDaemon", it)
+                }
+            }
+        }
+    }
 
     private fun addLocationListenerInner(provider: String, listener: IInterface) {
         val mDeathRecipient = object: IBinder.DeathRecipient {
