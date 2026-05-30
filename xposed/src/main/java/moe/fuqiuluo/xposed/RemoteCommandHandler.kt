@@ -90,6 +90,7 @@ object RemoteCommandHandler {
                 FakeLoc.enable = false
                 FakeLoc.hasBearings = false
                 MotionState.stop()
+                LocationServiceHook.resetGnssSession()
                 if (isLoadedLibrary) {
                     Dobby.setStatus(false)
                 }
