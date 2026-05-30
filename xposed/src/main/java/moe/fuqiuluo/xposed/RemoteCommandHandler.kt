@@ -168,18 +168,16 @@ object RemoteCommandHandler {
             }
             "move" -> {
                 val distance = rely.getDouble("n", 0.0)
-                val bearing = rely.getDouble("bearing", 0.0)
                 if (FakeLoc.enableDebugLog) {
-                    Logger.debug("move: distance=$distance, bearing=$bearing (设目标，位移交心跳)")
+                    Logger.debug("move: distance=$distance (设速度目标，方向由 set_bearing 负责，位移交心跳)")
                 }
                 if (distance == 0.0) {
-                    // 松摇杆/到点：目标速度归零，心跳平滑减速到静止
-                    MotionState.setTarget(speed = 0.0, bearing = bearing)
+                    // 松摇杆/到点/停止：目标速度归零，心跳平滑减速到静止
+                    MotionState.setTarget(speed = 0.0)
                 } else {
                     // 目标速度取巡航速度（由 start/set_speed/put_config 经 FakeLoc.speed 设置），不反推 dt
-                    MotionState.setTarget(speed = MotionState.cruiseSpeed, bearing = bearing)
+                    MotionState.setTarget(speed = MotionState.cruiseSpeed)
                 }
-                FakeLoc.hasBearings = true
                 return true
             }
             "update_location" -> {
